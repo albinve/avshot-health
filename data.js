@@ -13,6 +13,9 @@ const DEFAULTS = {
   goal: "both",
   gymDays: [1, 2, 4, 5, 6],
   halal: true,
+  allergies: [],
+  dislikes: [],
+  dislikeNote: "",
   kcal: 2150,
   protein: 175,
   waterMl: 2500,
@@ -23,14 +26,55 @@ const DEFAULTS = {
   kcalDeficit: 2150,
   bmr: null,
   tdee: null,
+  fatPct: null,
+  scaleBmr: null,
+  useScaleBmr: false,
   phase: "deficit",
   phaseStart: null,
   pinHash: null,
   pinSalt: null,
   sound: true,
   haptic: true,
-  onboarded: false
+  onboarded: false,
+  reminders: null
 };
+
+function defaultReminders(){
+  return {
+    on: false,
+    times: { haltung: "20:00", gym: "17:00", water: "13:00", weigh: "09:00", shop: "16:00" },
+    enabled: { haltung: true, gym: true, water: true, weigh: true, shop: true },
+    lastFired: {}
+  };
+}
+
+const REMINDER_DEFS = [
+  { id: "haltung", label: "10 Min Haltung", hint: "Abends, Nacken und Hüfte.", time: "20:00" },
+  { id: "gym", label: "Gym an Trainingstagen", hint: "Nur an deinen Gym-Tagen.", time: "17:00" },
+  { id: "water", label: "Wasser, mittags", hint: "Kein Saft. Nur wenn du noch unter der Hälfte bist.", time: "13:00" },
+  { id: "weigh", label: "Waage, nüchtern", hint: "Sonntagmorgen.", time: "09:00" },
+  { id: "shop", label: "Einkauf für nächste Woche", hint: "Sonntag · Liste unter Plan.", time: "16:00" }
+];
+
+const NOTE_COPY = {
+  haltung: { title: "10 Min Haltung", body: "Nacken und Hüfte. Kurzer Block, dann ist der Tag rund." },
+  gym: { title: "Trainingstag", body: "Zug führt. Last halten zählt mehr als ein neuer PR." },
+  water: { title: "Wasser", body: "Kein Saft. Ein paar Becher, dann weiter." },
+  weigh: { title: "Waage, nüchtern", body: "Eine Zahl. Der Trend entscheidet, nicht das Drama." },
+  shop: { title: "Einkauf für nächste Woche", body: "Liste steht unter Plan. Boxen für Mo–Di sparen den Mittwoch." }
+};
+
+const ALLERGY_OPTS = [
+  ["nuts", "Nüsse"],
+  ["lactose", "Laktose"],
+  ["gluten", "Gluten"],
+  ["shellfish", "Schalentiere"],
+  ["egg", "Ei"],
+  ["fish", "Fisch"],
+  ["soy", "Soja"]
+];
+
+const DISLIKE_CHIPS = ["Skyr", "Quark", "Whey", "Lachs", "Köfte", "Curry", "Eier", "Hafer", "Kokos", "Linsen", "Hack"];
 
 const GOAL_OPTS = [
   ["both", "Fettabbau + Haltung"],
@@ -47,42 +91,78 @@ function activityFactor(n){
   return 1.2;
 }
 
+function bmiOf(kg, cm){
+  const k = Number(kg), h = Number(cm);
+  if (!k || !h || h < 100) return null;
+  return +(k / ((h / 100) * (h / 100))).toFixed(1);
+}
+
 function computePlan(p){
+  p = p || {};
   const sex = p.sex === "f" ? "f" : "m";
-  const kg = Number(p.startKg) || 80;
+  const kg = Number(p.currentKg) || Number(p.startKg) || 80;
   const cm = Number(p.heightCm) || (sex === "f" ? 165 : 178);
   const age = Number(p.age) || 30;
   const gymN = Array.isArray(p.gymDays) ? p.gymDays.length : 5;
-  const bmr = sex === "f"
-    ? 10*kg + 6.25*cm - 5*age - 161
-    : 10*kg + 6.25*cm - 5*age + 5;
-  const tdee = bmr * activityFactor(gymN);
+  const mifflin = sex === "f"
+    ? 10 * kg + 6.25 * cm - 5 * age - 161
+    : 10 * kg + 6.25 * cm - 5 * age + 5;
+  const scaleBmr = Number(p.scaleBmr);
+  const useScale = !!(p.useScaleBmr && Number.isFinite(scaleBmr) && scaleBmr >= 800 && scaleBmr <= 3500);
+  const bmr = useScale ? scaleBmr : mifflin;
+  const factor = activityFactor(gymN);
+  const tdee = bmr * factor;
   const floor = sex === "f" ? 1500 : 1900;
+  const lossMinKg = +(kg * 0.005).toFixed(2);
+  const lossMaxKg = +(kg * 0.01).toFixed(2);
+  let deficitWant = Math.round((kg * 0.007 * 7700) / 7);
+  deficitWant = Math.max(300, Math.min(500, deficitWant));
   const goal = p.goal || "both";
   let kcal, phase;
   if (goal === "maintain" || goal === "posture") { kcal = tdee; phase = "maintain"; }
   else if (goal === "muscle") { kcal = tdee + 200; phase = "surplus"; }
-  else { kcal = Math.max(floor, tdee - 400); phase = "deficit"; }
+  else { kcal = Math.max(floor, tdee - deficitWant); phase = "deficit"; }
   kcal = Math.round(kcal / 10) * 10;
-  const protKg = sex === "f" ? 1.7 : 1.8;
-  const protein = Math.max(80, Math.min(220, Math.round(protKg * kg / 5) * 5));
+  const fatPct = Number(p.fatPct);
+  const hasFat = Number.isFinite(fatPct) && fatPct >= 3 && fatPct <= 60;
+  const lbm = hasFat ? kg * (1 - fatPct / 100) : null;
+  let protein;
+  if (lbm){
+    const gPer = goal === "muscle" ? 2.0 : (sex === "f" ? 1.8 : 1.9);
+    protein = Math.round((Math.max(1.6, Math.min(2.2, gPer)) * lbm) / 5) * 5;
+  } else {
+    const protKg = sex === "f" ? 1.7 : 1.8;
+    protein = Math.round(protKg * kg / 5) * 5;
+  }
+  protein = Math.max(80, Math.min(220, protein));
   const target = Number(p.targetKg);
   const goalLow = Number.isFinite(target) ? Math.round(target - 1) : (Number(p.goalLow) || 87);
   const goalHigh = Number.isFinite(target) ? Math.round(target + 1) : (Number(p.goalHigh) || 89);
   const maintain = Math.round(tdee / 10) * 10;
+  const deficit = Math.max(0, maintain - kcal);
   return {
     bmr: Math.round(bmr),
+    mifflin: Math.round(mifflin),
     tdee: Math.round(tdee),
     kcal,
     protein,
     kcalFloor: floor,
     kcalMaintain: maintain,
-    kcalDeficit: Math.max(floor, maintain - 400),
+    kcalDeficit: Math.max(floor, Math.round((tdee - deficitWant) / 10) * 10),
+    deficit,
+    deficitWant,
+    activity: factor,
+    gymN,
     goalLow,
     goalHigh,
     phase,
-    lossMinKg: +(kg * 0.005).toFixed(2),
-    lossMaxKg: +(kg * 0.01).toFixed(2)
+    lossMinKg,
+    lossMaxKg,
+    bmi: bmiOf(kg, cm),
+    lbm: lbm ? +lbm.toFixed(1) : null,
+    fatPct: hasFat ? fatPct : null,
+    usedScaleBmr: useScale,
+    kg, cm, age, sex
   };
 }
 
@@ -201,38 +281,197 @@ const MEAL_SLOTS = [
 
 const DINNER_RID = { 1: "salmon", 2: "kofte", 3: "curry", 4: "salmon", 5: "kofte", 6: "curry", 0: "flex" };
 
-function breakfastId(dow, swap) {
-  if (swap) return swap;
-  return dow % 2 === 1 ? "skyr" : "eggs";
-}
+const FOOD_FLAGS = {
+  skyr: { allergens: [], keywords: ["skyr"] },
+  eggs: { allergens: ["egg"], keywords: ["eier", "ruehrei"] },
+  "bowl-chicken": { allergens: [], keywords: ["haehnchen", "huhn"] },
+  "bowl-beef": { allergens: [], keywords: ["linsen", "hack"] },
+  whey: { allergens: [], keywords: ["whey"] },
+  quark: { allergens: [], keywords: ["quark"] },
+  salmon: { allergens: ["fish"], keywords: ["lachs"] },
+  kofte: { allergens: [], keywords: ["koefte", "kofte", "hack"] },
+  curry: { allergens: [], keywords: ["curry"] },
+  flex: { allergens: [], keywords: [] }
+};
 
-function lunchId(swap) {
-  return swap || "bowl-chicken";
-}
-
-function snackId(swap) {
-  return swap || "whey";
-}
-
-function mealsFor(dow, swaps) {
-  swaps = swaps || {};
-  const b = breakfastId(dow, swaps.fruehstueck);
-  const l = lunchId(swaps.mittag);
-  const s = snackId(swaps.snack);
-  const d = DINNER_RID[dow];
-  return [
-    { id: "fruehstueck", label: "Frühstück", rid: b, alt: b === "skyr" ? "eggs" : "skyr" },
-    { id: "mittag", label: "Mittagessen", rid: l, alt: l === "bowl-chicken" ? "bowl-beef" : "bowl-chicken" },
-    { id: "snack", label: "Snack", rid: s, alt: s === "whey" ? "quark" : "whey" },
-    { id: "abend", label: "Abendessen", rid: d, alt: null }
-  ];
-}
-
-const SWAPS = {
+const SWAP_OPTS = {
   fruehstueck: [["skyr", "Skyr-Bowl"], ["eggs", "Rührei + Brot"]],
   mittag: [["bowl-chicken", "Hähnchen-Bowl"], ["bowl-beef", "Hack & Linsen"]],
   snack: [["whey", "Whey + Banane"], ["quark", "Quark + Zimt"]]
 };
+
+function foldUm(s){
+  return String(s || "")
+    .toLowerCase()
+    .replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss");
+}
+
+function profileAvoids(p){
+  const allergies = new Set(Array.isArray(p && p.allergies) ? p.allergies : []);
+  const dislikes = [];
+  (p && p.dislikes || []).forEach(x => { const t = foldUm(x).trim(); if (t.length >= 2) dislikes.push(t); });
+  String(p && p.dislikeNote || "").split(/[,;\n]/).forEach(x => {
+    const t = foldUm(x).trim();
+    if (t.length >= 2) dislikes.push(t);
+  });
+  return { allergies, dislikes };
+}
+
+function dislikeBlocks(rid, p){
+  const { dislikes } = profileAvoids(p);
+  if (!dislikes.length) return false;
+  const flags = FOOD_FLAGS[rid] || { keywords: [] };
+  const rec = RECIPES[rid];
+  const blob = foldUm([rec && rec.name].concat(flags.keywords || []).join(" "));
+  return dislikes.some(d => blob.indexOf(d) !== -1);
+}
+
+function recipeAllowed(rid, p){
+  if (!RECIPES[rid]) return false;
+  if (rid === "flex") return true;
+  const { allergies } = profileAvoids(p);
+  const flags = FOOD_FLAGS[rid] || { allergens: [] };
+  if ((flags.allergens || []).some(a => allergies.has(a))) return false;
+  if (dislikeBlocks(rid, p)) return false;
+  return true;
+}
+
+function cloneRecipe(rid){
+  const base = RECIPES[rid];
+  if (!base) return { rid, name: "Mahlzeit", kcal: 0, prot: 0, items: [], how: "", note: "" };
+  return {
+    rid,
+    name: base.name,
+    kcal: base.kcal,
+    prot: base.prot,
+    items: (base.items || []).map(([q, n]) => [q, n]),
+    how: base.how,
+    note: ""
+  };
+}
+
+function recipeFor(rid, p){
+  p = p || {};
+  const r = cloneRecipe(rid);
+  const { allergies, dislikes } = profileAvoids(p);
+  const wantsNoNuts = allergies.has("nuts") || dislikes.some(d => d.indexOf("nuss") !== -1 || d === "nuesse" || d === "nuts");
+  const lf = allergies.has("lactose");
+  const gf = allergies.has("gluten");
+  const noCoconut = dislikes.some(d => d.indexOf("kokos") !== -1);
+  const noDairyWord = dislikes.some(d => d === "skyr" || d === "quark" || d === "joghurt");
+
+  if (rid === "skyr" && wantsNoNuts){
+    r.items = r.items.filter(([, n]) => !/n(ü|u)sse/i.test(n));
+    r.items.push(["", "extra Beeren statt Nüsse"]);
+    r.name = "Skyr-Bowl ohne Nüsse";
+    r.how = "Hafer und Skyr verrühren, Beeren drauf. Keine Nüsse.";
+    r.kcal = 400;
+    r.prot = 38;
+    r.note = "Nüsse weggelassen";
+  }
+  if (lf){
+    r.items = r.items.map(([q, n]) => {
+      if (/wasser oder milch/i.test(n)) return [q, "Wasser (keine Milch)"];
+      if (/skyr|quark|joghurt|milch/i.test(n) && !/laktosefrei/i.test(n)) return [q, n + " · laktosefrei"];
+      return [q, n];
+    });
+    if (/skyr|quark|joghurt|whey|milch/i.test(r.name + " " + r.how)) {
+      r.note = (r.note ? r.note + " · " : "") + "laktosefrei wählen";
+    }
+  }
+  if (rid === "kofte" && (lf || noDairyWord)){
+    r.items = r.items.map(([q, n]) =>
+      /skyr|joghurt/i.test(n) ? [q, lf ? "laktosefreier Dip · Gurke · Knoblauch" : "Gurke · Knoblauch · Kräuter (ohne Skyr)"] : [q, n]
+    );
+    r.name = noDairyWord ? "Köfte · Bulgur · Kräuter-Dip" : r.name;
+  }
+  if (gf){
+    r.items = r.items.map(([q, n]) => {
+      if (/vollkornbrot/i.test(n) || /scheiben vollkorn/i.test(n)) return [q, "glutenfreies Brot"];
+      if (/haferflocken/i.test(n)) return [q, "glutenfreie Haferflocken"];
+      if (/bulgur/i.test(n)) return [q, "Reis (statt Bulgur)"];
+      return [q, n];
+    });
+  }
+  if (rid === "curry" && noCoconut){
+    r.items = r.items.map(([q, n]) => /kokos/i.test(n) ? ["150 ml", "passierte Tomaten (kein Kokos)"] : [q, n]);
+  }
+  if (rid === "flex"){
+    const kcal = p.kcal || 2150;
+    const prot = p.protein || 175;
+    r.how = "Reste, Omelett, Bowl, Grillteller. Über den Tag ~" + kcal + " kcal und mindestens " + Math.min(150, prot) + " g Protein. Halal — kein Saft, keine Kalorien trinken. Der Sonntag darf leben, er darf dich nicht aus der Woche werfen.";
+  }
+  if (p.halal !== false && /hähnchen|hack|whey/i.test(r.name + r.how) && !/halal/i.test(r.how)) {
+    /* default catalog is already halal */
+  }
+  return r;
+}
+
+function poolFor(slot){
+  if (slot === "fruehstueck") return ["skyr", "eggs"];
+  if (slot === "mittag") return ["bowl-chicken", "bowl-beef"];
+  if (slot === "snack") return ["whey", "quark"];
+  if (slot === "abend") return ["salmon", "kofte", "curry", "flex"];
+  return [];
+}
+
+function pickMeal(slot, preferred, swaps, p){
+  const swap = swaps && swaps[slot];
+  const pool = poolFor(slot);
+  if (swap && recipeAllowed(swap, p)) return swap;
+  if (preferred && recipeAllowed(preferred, p)) return preferred;
+  return pool.find(id => recipeAllowed(id, p)) || preferred || pool[0] || "flex";
+}
+
+function mealsFor(dow, swaps, p){
+  swaps = swaps || {};
+  p = p || {};
+  const bPref = dow % 2 === 1 ? "skyr" : "eggs";
+  const b = pickMeal("fruehstueck", bPref, swaps, p);
+  const l = pickMeal("mittag", "bowl-chicken", swaps, p);
+  const s = pickMeal("snack", "whey", swaps, p);
+  const d = pickMeal("abend", DINNER_RID[dow], swaps, p);
+  const alt = (slot, cur) => (poolFor(slot).find(id => id !== cur && recipeAllowed(id, p)) || null);
+  return [
+    { id: "fruehstueck", label: "Frühstück", rid: b, alt: alt("fruehstueck", b) },
+    { id: "mittag", label: "Mittagessen", rid: l, alt: alt("mittag", l) },
+    { id: "snack", label: "Snack", rid: s, alt: alt("snack", s) },
+    { id: "abend", label: "Abendessen", rid: d, alt: alt("abend", d) }
+  ];
+}
+
+function swapsFor(slot, p){
+  return (SWAP_OPTS[slot] || []).filter(([rid]) => recipeAllowed(rid, p));
+}
+
+function personalPlan(p){
+  const c = computePlan(p);
+  const allowed = {
+    fruehstueck: poolFor("fruehstueck").filter(id => recipeAllowed(id, p)),
+    mittag: poolFor("mittag").filter(id => recipeAllowed(id, p)),
+    snack: poolFor("snack").filter(id => recipeAllowed(id, p)),
+    abend: poolFor("abend").filter(id => recipeAllowed(id, p))
+  };
+  const hints = [];
+  const all = (p && p.allergies) || [];
+  if (all.indexOf("nuts") !== -1) hints.push("Nüsse sind raus — Skyr-Bowl ohne Nüsse oder Rührei.");
+  if (all.indexOf("lactose") !== -1) hints.push("Laktose: Skyr, Quark und Whey laktosefrei, Shake mit Wasser.");
+  if (all.indexOf("gluten") !== -1) hints.push("Gluten: Brot und Hafer glutenfrei, Bulgur wird Reis.");
+  if (all.indexOf("fish") !== -1) hints.push("Kein Lachs — Curry oder Köfte an den Fischtagen.");
+  if (all.indexOf("egg") !== -1) hints.push("Kein Rührei — Frühstück über Skyr oder Shake.");
+  if (all.indexOf("shellfish") !== -1) hints.push("Keine Schalentiere im Plan.");
+  if (all.indexOf("soy") !== -1) hints.push("Kein Soja. Whey ist Milchprotein.");
+  if (((p && p.dislikes) || []).length || String(p && p.dislikeNote || "").trim()) {
+    hints.push("Unlieblinge werden getauscht, auch auf der Einkaufsliste.");
+  }
+  const g = (p && p.goal) || "both";
+  if (g === "both" || g === "posture") hints.push("Haltung: 10-Min-Routine bleibt. Zug:Druck etwa 2:1.");
+  if (g === "fat") hints.push("Fettabbau führt. Krafttraining bleibt, Haltung ist optional.");
+  c.allowed = allowed;
+  c.hints = hints;
+  c.engine = c.usedScaleBmr ? "Waagen-BMR × Aktivität" : "Mifflin-St Jeor × Gym-Tage";
+  return c;
+}
 
 const PHASES = {
   deficit: { label: "Defizit", hint: "Moderates Defizit (~400 kcal unter TDEE). Gewichte halten, nicht Jagd auf PRs." },
