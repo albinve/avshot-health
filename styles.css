@@ -130,8 +130,9 @@ textarea{min-height:96px; font-size:14px; line-height:1.45; resize:vertical}
 .swaps{display:flex; gap:8px; flex-wrap:wrap; padding:0 0 4px 38px}
 .chiprow{display:flex; flex-wrap:wrap; gap:8px; align-items:center}
 button.chip, .chip{background:none; border:1px solid var(--line); color:var(--muted); border-radius:999px;
-  padding:8px 12px; font-size:13px; touch-action:manipulation; -webkit-user-select:none; user-select:none;
-  flex-shrink:0; min-height:40px; position:relative; z-index:1}
+  padding:10px 14px; font-size:13px; touch-action:manipulation; -webkit-user-select:none; user-select:none;
+  flex-shrink:0; min-height:44px; min-width:44px; cursor:pointer; position:relative; z-index:1;
+  display:inline-flex; align-items:center; justify-content:center}
 .chip.on{border-color:var(--gold); color:var(--gold)}
 .daychip{min-width:44px; min-height:44px; font-weight:600; font-size:13px}
 

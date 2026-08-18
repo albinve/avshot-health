@@ -1,4 +1,4 @@
-const CACHE = "avshot-health-v8";
+const CACHE = "avshot-health-v9";
 const FILES = [
   "./",
   "./index.html",

@@ -92,6 +92,12 @@ const GOAL_OPTS = [
   ["muscle", "Muskeln aufbauen"]
 ];
 
+function normSex(s){
+  const x = String(s == null ? "" : s).toLowerCase().trim();
+  if (x === "f" || x === "female" || x === "frau" || x === "w" || x === "woman") return "f";
+  return "m";
+}
+
 function activityFactor(n){
   if (n >= 5) return 1.55;
   if (n >= 3) return 1.45;
@@ -107,7 +113,7 @@ function bmiOf(kg, cm){
 
 function computePlan(p){
   p = p || {};
-  const sex = p.sex === "f" ? "f" : "m";
+  const sex = normSex(p.sex);
   const kg = Number(p.currentKg) || Number(p.startKg) || 80;
   const cm = Number(p.heightCm) || (sex === "f" ? 165 : 178);
   const age = Number(p.age) || 30;

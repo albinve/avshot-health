@@ -104,6 +104,7 @@ function cleanProfile(raw){
   p.aiCoach = String(p.aiCoach || "").slice(0, 400);
   p.aiNotes = String(p.aiNotes || "").slice(0, 500);
   p.aiGymNote = String(p.aiGymNote || "").slice(0, 400);
+  p.sex = normSex(p.sex);
   p.aiForbidden = Array.isArray(p.aiForbidden)
     ? p.aiForbidden.map(String).map(s => s.trim()).filter(Boolean).slice(0, 24)
     : [];
@@ -800,16 +801,36 @@ function savedLine(){
   return "Gespeichert " + new Date(S.savedAt).toLocaleString("de-DE", { day:"numeric", month:"short", hour:"2-digit", minute:"2-digit" }) + " · nur dieses Gerät";
 }
 
-function chipRow(opts, selected, act, key){
-  return opts.map(([id, lab]) =>
-    `<button type="button" class="chip ${selected.indexOf(id)>=0?"on":""}" data-act="${act}" data-${key}="${esc(id)}">${esc(lab)}</button>`
-  ).join("");
+function chipBtn(act, id, lab, on, extraClass){
+  const cls = extraClass ? "chip " + extraClass : "chip";
+  return `<button type="button" class="${cls}${on?" on":""}" data-act="${esc(act)}" data-id="${esc(String(id))}" aria-pressed="${on?"true":"false"}">${esc(lab)}</button>`;
 }
-function dayChips(selected, act){
+function chipRow(opts, selected, act){
+  const sel = selected || [];
+  return opts.map(([id, lab]) => chipBtn(act, id, lab, sel.indexOf(id) >= 0)).join("");
+}
+function dayChips(selected){
   const days = (selected || []).map(Number);
   return `<div class="chiprow">` + [1,2,3,4,5,6,0].map(n =>
-    `<button type="button" class="chip daychip ${days.indexOf(n)>=0?"on":""}" data-act="${act}" data-day="${n}">${WD_SHORT[n]}</button>`
+    chipBtn("gym-day", n, WD_SHORT[n], days.indexOf(n) >= 0, "daychip")
   ).join("") + `</div>`;
+}
+function sexChips(sex){
+  const sx = normSex(sex);
+  return `<div class="chiprow">` +
+    chipBtn("sex", "m", "Mann", sx !== "f") +
+    chipBtn("sex", "f", "Frau", sx === "f") +
+    `</div>`;
+}
+function goalChips(goal){
+  return `<div class="chiprow">` + GOAL_OPTS.map(([id, l]) => chipBtn("goal", id, l, goal === id)).join("") + `</div>`;
+}
+function dislikeChips(list){
+  const sel = list || [];
+  return DISLIKE_CHIPS.map(n => chipBtn("dislike", n, n, sel.indexOf(n) >= 0)).join("");
+}
+function halalChip(on){
+  return chipBtn("halal", on ? "1" : "0", "Halal · " + (on ? "an" : "aus"), !!on);
 }
 
 /* ───────── app state ───────── */
@@ -1112,10 +1133,14 @@ function saveSettings(){
   save(); toast("Einstellungen gespeichert"); render();
 }
 
+function inOnboard(){
+  return !S.profile.onboarded || !S.profile.pinHash;
+}
+
 function toggleSex(sx, onboard){
   if (onboard) captureOnboardFields();
   const target = onboard ? ensureDraft() : S.profile;
-  target.sex = sx === "f" ? "f" : "m";
+  target.sex = normSex(sx);
   if (!onboard){ syncPlanTargets(); save(); }
   render();
 }
@@ -2059,15 +2084,10 @@ function renderPlan(dow){
 
   html += `<div class="sect">Profil</div><div class="card">
     <div class="sub" style="margin:0 0 10px">Geschlecht, Ziel und Gym-Tage steuern TDEE und den Kalender. Tippen zum Umschalten.</div>
-    <div class="field"><label>Geschlecht</label>
-      <div class="chiprow">
-        <button type="button" class="chip ${S.profile.sex!=="f"?"on":""}" data-act="sex" data-sex="m">Mann</button>
-        <button type="button" class="chip ${S.profile.sex==="f"?"on":""}" data-act="sex" data-sex="f">Frau</button>
-      </div></div>
-    <div class="field"><label>Ziel</label>
-      <div class="chiprow">${GOAL_OPTS.map(([id,l])=>`<button type="button" class="chip ${S.profile.goal===id?"on":""}" data-act="goal" data-goal="${id}">${esc(l)}</button>`).join("")}</div></div>
-    <div class="field"><label>Gym-Tage</label>${dayChips(S.profile.gymDays, "gym-day")}</div>
-    <button type="button" class="chip ${S.profile.halal!==false?"on":""}" data-act="halal">Halal · ${S.profile.halal!==false?"an":"aus"}</button>
+    <div class="field"><label>Geschlecht</label>${sexChips(S.profile.sex)}</div>
+    <div class="field"><label>Ziel</label>${goalChips(S.profile.goal)}</div>
+    <div class="field"><label>Gym-Tage</label>${dayChips(S.profile.gymDays)}</div>
+    ${halalChip(S.profile.halal !== false)}
   </div>`;
 
   const aiLast = S.profile.aiLastAt ? new Date(S.profile.aiLastAt).toLocaleString("de-DE", { day:"numeric", month:"short", hour:"2-digit", minute:"2-digit" }) : "";
@@ -2116,9 +2136,9 @@ function renderPlan(dow){
   html += `<div class="sect">Allergien &amp; Unlieblinge</div><div class="card">
     <div class="sub" style="margin:0 0 10px">Mahlzeiten und Einkaufsliste passen sich an. Alles bleibt auf diesem Gerät.</div>
     <div class="field"><label>Allergien</label>
-      <div class="swaps" style="padding:0">${chipRow(ALLERGY_OPTS, S.profile.allergies||[], "allergy", "id")}</div></div>
+      <div class="swaps" style="padding:0">${chipRow(ALLERGY_OPTS, S.profile.allergies||[], "allergy")}</div></div>
     <div class="field"><label>Mag ich nicht</label>
-      <div class="swaps" style="padding:0">${DISLIKE_CHIPS.map(n=>`<button type="button" class="chip ${(S.profile.dislikes||[]).indexOf(n)>=0?"on":""}" data-act="dislike" data-name="${esc(n)}">${esc(n)}</button>`).join("")}</div></div>
+      <div class="swaps" style="padding:0">${dislikeChips(S.profile.dislikes)}</div></div>
     <div class="field"><label>Weitere Unlieblinge (Freitext)</label>
       <input id="set-dislike-note" type="text" value="${esc(S.profile.dislikeNote||"")}" placeholder="z. B. Oliven, scharf" data-act="diet-note"></div>
   </div>`;
@@ -2213,7 +2233,7 @@ function ensureDraft(){
   if (draft) return draft;
   draft = Object.assign({}, DEFAULTS, S.profile||{}, {
     name: (S.profile && S.profile.name) || "Albin",
-    sex: (S.profile && S.profile.sex) || "m",
+    sex: normSex((S.profile && S.profile.sex) || "m"),
     goal: (S.profile && S.profile.goal) || "both",
     gymDays: gymDaysOf(S.profile),
     allergies: (S.profile && S.profile.allergies && S.profile.allergies.slice()) || [],
@@ -2343,7 +2363,7 @@ function renderLock(){
     <div class="card">
       <div class="field"><label>PIN</label>
         <input id="lock-pin" type="password" inputmode="numeric" maxlength="8" autocomplete="off"></div>
-      <button class="btn big" data-act="unlock">Entsperren</button>
+      <button type="button" class="btn big" data-act="unlock">Entsperren</button>
     </div>
   </div>`;
 }
@@ -2362,11 +2382,7 @@ function renderOnboard(){
       <div class="sub">Nur auf diesem Handy. Kein Account. Optional später unter Plan: eigener OpenAI-Schlüssel — aus bleibt der Default.</div>
       <div class="card">
         <div class="field"><label>Name</label><input id="ob-name" type="text" value="${esc(d.name||"Albin")}"></div>
-        <div class="field"><label>Geschlecht — für Kalorien und Protein</label>
-          <div class="chiprow">
-            <button type="button" class="chip ${d.sex!=="f"?"on":""}" data-act="ob-sex" data-sex="m">Mann</button>
-            <button type="button" class="chip ${d.sex==="f"?"on":""}" data-act="ob-sex" data-sex="f">Frau</button>
-          </div></div>
+        <div class="field"><label>Geschlecht — für Kalorien und Protein</label>${sexChips(d.sex)}</div>
         <button type="button" class="btn big" data-act="onb-next">Weiter</button>
       </div>`;
   }
@@ -2382,8 +2398,8 @@ function renderOnboard(){
           <input id="ob-age" type="text" inputmode="numeric" value="${d.age||""}" placeholder="z. B. 32"></div>
         <div class="field"><label>Zielgewicht (kg)</label>
           <input id="ob-tgt" type="text" inputmode="decimal" value="${d.targetKg||88}" placeholder="88"></div>
-        <div class="row"><button class="btn ghost" style="flex:1" data-act="onb-back">Zurück</button>
-          <button class="btn" style="flex:1" data-act="onb-next">Weiter</button></div>
+        <div class="row"><button type="button" class="btn ghost" style="flex:1" data-act="onb-back">Zurück</button>
+          <button type="button" class="btn" style="flex:1" data-act="onb-next">Weiter</button></div>
       </div>`;
   }
   if (step === 2){
@@ -2391,13 +2407,13 @@ function renderOnboard(){
       <div class="sub">Allergien und Unlieblinge ändern Frühstück, Abendessen und die Einkaufsliste. Deutsch/halal bleibt der Default.</div>
       <div class="card">
         <div class="field"><label>Allergien</label>
-          <div class="swaps" style="padding:0">${chipRow(ALLERGY_OPTS, d.allergies||[], "ob-allergy", "id")}</div></div>
+          <div class="swaps" style="padding:0">${chipRow(ALLERGY_OPTS, d.allergies||[], "allergy")}</div></div>
         <div class="field"><label>Mag ich nicht</label>
-          <div class="swaps" style="padding:0">${DISLIKE_CHIPS.map(n=>`<button type="button" class="chip ${(d.dislikes||[]).indexOf(n)>=0?"on":""}" data-act="ob-dislike" data-name="${esc(n)}">${esc(n)}</button>`).join("")}</div></div>
+          <div class="swaps" style="padding:0">${dislikeChips(d.dislikes)}</div></div>
         <div class="field"><label>Weitere Unlieblinge</label>
           <input id="ob-dislike-note" type="text" value="${esc(d.dislikeNote||"")}" placeholder="optional"></div>
-        <div class="row" style="margin-top:8px"><button class="btn ghost" style="flex:1" data-act="onb-back">Zurück</button>
-          <button class="btn" style="flex:1" data-act="onb-next">Weiter</button></div>
+        <div class="row" style="margin-top:8px"><button type="button" class="btn ghost" style="flex:1" data-act="onb-back">Zurück</button>
+          <button type="button" class="btn" style="flex:1" data-act="onb-next">Weiter</button></div>
       </div>`;
   }
   if (step === 3){
@@ -2405,9 +2421,9 @@ function renderOnboard(){
       <div class="sub">Fettabbau plus Haltung ist der Standard. Kein Crash, kein Detox, kein 1200-kcal-Unsinn. Tippe die Tage an — Gold heißt Gym.</div>
       <div class="card">
         <div class="field"><label>Was willst du?</label>
-          <div class="chiprow">${GOAL_OPTS.map(([id,l])=>`<button type="button" class="chip ${d.goal===id?"on":""}" data-act="ob-goal" data-goal="${id}">${esc(l)}</button>`).join("")}</div></div>
-        <div class="field"><label>Gym-Tage</label>${dayChips(d.gymDays, "ob-gym")}</div>
-        <button type="button" class="chip ${d.halal?"on":""}" data-act="ob-halal">Halal · ${d.halal?"an":"aus"}</button>
+          ${goalChips(d.goal)}</div>
+        <div class="field"><label>Gym-Tage</label>${dayChips(d.gymDays)}</div>
+        ${halalChip(!!d.halal)}
         <div class="row" style="margin-top:14px"><button type="button" class="btn ghost" style="flex:1" data-act="onb-back">Zurück</button>
           <button type="button" class="btn" style="flex:1" data-act="onb-next">Weiter</button></div>
       </div>`;
@@ -2427,8 +2443,8 @@ function renderOnboard(){
         <div class="field"><label>Knochenmasse kg</label><input id="ob-bone" type="text" inputmode="decimal" value="${esc(vv("boneKg"))}" placeholder="optional"></div>
         <div class="field"><label>BMR von der Waage</label><input id="ob-bmr" type="text" inputmode="numeric" value="${esc(vv("scaleBmr"))}" placeholder="optional"></div>
         <label class="listrow"><span>Waagen-BMR für den Plan nutzen</span><input id="ob-scale-bmr" type="checkbox" ${d.useScaleBmr?"checked":""}></label>
-        <div class="row" style="margin-top:8px"><button class="btn ghost" style="flex:1" data-act="onb-back">Zurück</button>
-          <button class="btn" style="flex:1" data-act="onb-next">Überspringen / Weiter</button></div>
+        <div class="row" style="margin-top:8px"><button type="button" class="btn ghost" style="flex:1" data-act="onb-back">Zurück</button>
+          <button type="button" class="btn" style="flex:1" data-act="onb-next">Überspringen / Weiter</button></div>
       </div>`;
   }
   if (step === 5){
@@ -2448,8 +2464,8 @@ function renderOnboard(){
           Zielzone ${c.goalLow}–${c.goalHigh} kg · Tempo ${fmtN(c.lossMinKg)}–${fmtN(c.lossMaxKg)} kg/Woche.
           ${c.hints.length?`<br>${esc(c.hints[0])}`:""}
         </div>
-        <div class="row" style="margin-top:14px"><button class="btn ghost" style="flex:1" data-act="onb-back">Zurück</button>
-          <button class="btn" style="flex:1" data-act="onb-next">PIN setzen</button></div>
+        <div class="row" style="margin-top:14px"><button type="button" class="btn ghost" style="flex:1" data-act="onb-back">Zurück</button>
+          <button type="button" class="btn" style="flex:1" data-act="onb-next">PIN setzen</button></div>
       </div>`;
   }
   if (step === 6){
@@ -2458,8 +2474,8 @@ function renderOnboard(){
       <div class="card">
         <div class="field"><label>PIN</label><input id="ob-pin" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password"></div>
         <div class="field"><label>PIN wiederholen</label><input id="ob-pin2" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password"></div>
-        ${!S.profile.onboarded?`<button class="btn ghost" data-act="onb-back">Zurück</button>`:""}
-        <button class="btn big" style="margin-top:10px" data-act="onb-pin">Profil sperren &amp; starten</button>
+        ${!S.profile.onboarded?`<button type="button" class="btn ghost" data-act="onb-back">Zurück</button>`:""}
+        <button type="button" class="btn big" style="margin-top:10px" data-act="onb-pin">Profil sperren &amp; starten</button>
       </div>`;
   }
   $("#app").innerHTML = `<div class="onb fadein">
@@ -2538,19 +2554,23 @@ function handleClick(e){
     onboard: () => onbNext(),
     "onb-next": () => onbNext(),
     "onb-back": () => onbBack(),
-    "onb-sex": () => onbSex(d.sex),
-    "onb-goal": () => onbGoal(d.goal),
-    "onb-gym": () => onbGymDay(d.day),
-    "onb-halal": () => onbHalal(),
+    "onb-sex": () => toggleSex(d.id || d.sex, true),
+    "onb-goal": () => toggleGoal(d.id || d.goal, true),
+    "onb-gym": () => toggleGymDay(d.id != null ? d.id : d.day, true),
+    "onb-halal": () => toggleHalal(true),
+    "ob-sex": () => toggleSex(d.id || d.sex, true),
+    "ob-goal": () => toggleGoal(d.id || d.goal, true),
+    "ob-gym": () => toggleGymDay(d.id != null ? d.id : d.day, true),
+    "ob-halal": () => toggleHalal(true),
     "onb-pin": () => onbSetPin(),
     "ob-allergy": () => toggleAllergy(d.id, true),
-    "ob-dislike": () => toggleDislike(d.name, true),
-    allergy: () => toggleAllergy(d.id, false),
-    dislike: () => toggleDislike(d.name, false),
-    sex: () => toggleSex(d.sex, false),
-    goal: () => toggleGoal(d.goal, false),
-    "gym-day": () => toggleGymDay(d.day, false),
-    halal: () => toggleHalal(false),
+    "ob-dislike": () => toggleDislike(d.id || d.name, true),
+    allergy: () => toggleAllergy(d.id, inOnboard()),
+    dislike: () => toggleDislike(d.id || d.name, inOnboard()),
+    sex: () => toggleSex(d.id || d.sex, inOnboard()),
+    goal: () => toggleGoal(d.id || d.goal, inOnboard()),
+    "gym-day": () => toggleGymDay(d.id != null ? d.id : d.day, inOnboard()),
+    halal: () => toggleHalal(inOnboard()),
     "ai-run": () => runAiPlan(),
     "ai-copy": () => copyAiPrompt(),
     "ai-paste": () => pasteAiJson(),
