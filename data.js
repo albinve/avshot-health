@@ -5,8 +5,14 @@ const GYM_DAYS = [1, 2, 4, 5, 6];
 
 const DEFAULTS = {
   name: "Albin",
+  sex: "m",
+  age: null,
   startKg: null,
   heightCm: null,
+  targetKg: 88,
+  goal: "both",
+  gymDays: [1, 2, 4, 5, 6],
+  halal: true,
   kcal: 2150,
   protein: 175,
   waterMl: 2500,
@@ -15,12 +21,70 @@ const DEFAULTS = {
   kcalFloor: 1900,
   kcalMaintain: 2650,
   kcalDeficit: 2150,
-  phase: "deficit", /* deficit | break | reverse */
+  bmr: null,
+  tdee: null,
+  phase: "deficit",
   phaseStart: null,
+  pinHash: null,
+  pinSalt: null,
   sound: true,
   haptic: true,
   onboarded: false
 };
+
+const GOAL_OPTS = [
+  ["both", "Fettabbau + Haltung"],
+  ["fat", "Fettabbau"],
+  ["posture", "Haltung"],
+  ["maintain", "Gewicht halten"],
+  ["muscle", "Muskeln aufbauen"]
+];
+
+function activityFactor(n){
+  if (n >= 5) return 1.55;
+  if (n >= 3) return 1.45;
+  if (n >= 1) return 1.375;
+  return 1.2;
+}
+
+function computePlan(p){
+  const sex = p.sex === "f" ? "f" : "m";
+  const kg = Number(p.startKg) || 80;
+  const cm = Number(p.heightCm) || (sex === "f" ? 165 : 178);
+  const age = Number(p.age) || 30;
+  const gymN = Array.isArray(p.gymDays) ? p.gymDays.length : 5;
+  const bmr = sex === "f"
+    ? 10*kg + 6.25*cm - 5*age - 161
+    : 10*kg + 6.25*cm - 5*age + 5;
+  const tdee = bmr * activityFactor(gymN);
+  const floor = sex === "f" ? 1500 : 1900;
+  const goal = p.goal || "both";
+  let kcal, phase;
+  if (goal === "maintain" || goal === "posture") { kcal = tdee; phase = "maintain"; }
+  else if (goal === "muscle") { kcal = tdee + 200; phase = "surplus"; }
+  else { kcal = Math.max(floor, tdee - 400); phase = "deficit"; }
+  kcal = Math.round(kcal / 10) * 10;
+  const protKg = sex === "f" ? 1.7 : 1.8;
+  const protein = Math.max(80, Math.min(220, Math.round(protKg * kg / 5) * 5));
+  const target = Number(p.targetKg);
+  const goalLow = Number.isFinite(target) ? Math.round(target - 1) : (Number(p.goalLow) || 87);
+  const goalHigh = Number.isFinite(target) ? Math.round(target + 1) : (Number(p.goalHigh) || 89);
+  const maintain = Math.round(tdee / 10) * 10;
+  return {
+    bmr: Math.round(bmr),
+    tdee: Math.round(tdee),
+    kcal,
+    protein,
+    kcalFloor: floor,
+    kcalMaintain: maintain,
+    kcalDeficit: Math.max(floor, maintain - 400),
+    goalLow,
+    goalHigh,
+    phase,
+    lossMinKg: +(kg * 0.005).toFixed(2),
+    lossMaxKg: +(kg * 0.01).toFixed(2)
+  };
+}
 
 const RECIPES = {
   skyr: {
@@ -171,15 +235,17 @@ const SWAPS = {
 };
 
 const PHASES = {
-  deficit: { label: "Defizit", hint: "Fettabbau. Gewichte halten, nicht Jagd auf PRs." },
+  deficit: { label: "Defizit", hint: "Moderates Defizit (~400 kcal unter TDEE). Gewichte halten, nicht Jagd auf PRs." },
   break: { label: "Diätpause", hint: "1–2 Wochen Erhaltung. Training bleibt, Hunger darf runter." },
-  reverse: { label: "Reverse Diet", hint: "Am Ziel: in +150-kcal-Schritten über 4–6 Wochen hoch." }
+  reverse: { label: "Reverse Diet", hint: "Am Ziel: in +150-kcal-Schritten über 4–6 Wochen hoch." },
+  maintain: { label: "Erhaltung", hint: "Kalorien auf TDEE. Gewicht halten, Haltung und Kraft voran." },
+  surplus: { label: "Leichter Aufbau", hint: "Kleiner Überschuss (~200 kcal). Kein Dirty Bulk." }
 };
 
 const RULES = [
   { t: "Wiegen", s: "1× pro Woche, morgens nüchtern. Der Wochentrend zählt, nicht der Einzelwert." },
-  { t: "Anpassen statt hungern", s: "2–3 Wochen kein Fortschritt → 150 kcal runter. Nie unter 1.900 kcal." },
-  { t: "Diätpausen", s: "Alle 8–10 Wochen 1–2 Wochen auf ~2.650 kcal Erhaltung." },
+  { t: "Anpassen statt hungern", s: "2–3 Wochen kein Fortschritt → 150 kcal runter. Nie unter deinem Kalorienboden (Mann ~1.900, Frau ~1.500)." },
+  { t: "Diätpausen", s: "Alle 8–10 Wochen 1–2 Wochen auf Erhaltung (dein TDEE)." },
   { t: "Reverse Diet am Ziel", s: "Über 4–6 Wochen in +150-kcal-Schritten hochfahren. Gewicht darf leicht steigen." },
   { t: "Krafttraining nie streichen", s: "Im Defizit Last halten. Ein gehaltenes Gewicht ist ein Gewinn." },
   { t: "80 % über 8 Monate", s: "Schlägt 100 % Perfektion über 3 Wochen. Der Sonntag ist bewusst flexibel." }

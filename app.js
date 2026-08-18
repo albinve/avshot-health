@@ -1,9 +1,11 @@
 /* AV·SHOT Health */
 const STORE_KEY = "avshot-health";
+const IDB_NAME = "avshot-health";
+const IDB_STORE = "kv";
 const mem = {};
 const store = {
   get(k){ try{ return localStorage.getItem(k); }catch(e){ return mem[k] ?? null; } },
-  set(k,v){ try{ localStorage.setItem(k,v); }catch(e){ mem[k]=v; } }
+  set(k,v){ try{ localStorage.setItem(k,v); mem[k]=v; }catch(e){ mem[k]=v; } }
 };
 
 function keyOf(d){
@@ -17,6 +19,8 @@ function $(s, r){ return (r||document).querySelector(s); }
 function fmtKg(n){ return Number(n).toFixed(1).replace(".", ","); }
 function fmtN(n){ return String(n).replace(".", ","); }
 function parseDec(s){ const v=parseFloat(String(s||"").replace(",", ".")); return Number.isFinite(v) ? v : NaN; }
+function sanitizeNumInput(s){ return String(s||"").replace(/[^0-9.,\-]/g,"").slice(0,10); }
+function isDateKey(s){ return /^\d{4}-\d{2}-\d{2}$/.test(String(s||"")); }
 function isoWeek(d){
   const x=new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
   const day=x.getUTCDay()||7; x.setUTCDate(x.getUTCDate()+4-day);
@@ -30,7 +34,9 @@ function weeksBetween(a,b){
 
 function blankState(){
   return {
+    app: "avshot-health",
     v: 2,
+    savedAt: 0,
     firstUse: null,
     days: {},
     weights: [],
@@ -42,20 +48,32 @@ function blankState(){
   };
 }
 
+function cloneJson(x){
+  try { return JSON.parse(JSON.stringify(x)); } catch(e){ return null; }
+}
+
 function migrate(raw){
-  if (!raw || typeof raw !== "object") return blankState();
-  if (raw.v >= 2) {
-    raw.profile = Object.assign({}, DEFAULTS, raw.profile||{});
-    raw.days = raw.days || {};
-    raw.weights = raw.weights || [];
-    raw.lifts = raw.lifts || {};
-    raw.shop = raw.shop || { week: "", checks: {} };
-    raw.posture = raw.posture || [];
-    raw.photos = raw.photos || [];
-    return raw;
+  const clean = cloneJson(raw);
+  if (!clean || typeof clean !== "object" || Array.isArray(clean)) return blankState();
+  if (clean.app && clean.app !== "avshot-health") return blankState();
+  if (clean.v >= 2) {
+    const S0 = blankState();
+    S0.savedAt = Number(clean.savedAt)||0;
+    S0.firstUse = isDateKey(clean.firstUse) ? clean.firstUse : null;
+    S0.days = (clean.days && typeof clean.days === "object" && !Array.isArray(clean.days)) ? clean.days : {};
+    S0.weights = Array.isArray(clean.weights)
+      ? clean.weights.filter(w=>w && isDateKey(w.date) && Number.isFinite(+w.kg)).map(w=>({ date:w.date, kg:+w.kg }))
+      : [];
+    S0.lifts = (clean.lifts && typeof clean.lifts === "object") ? clean.lifts : {};
+    S0.shop = clean.shop && typeof clean.shop === "object" ? clean.shop : { week:"", checks:{} };
+    S0.posture = Array.isArray(clean.posture) ? clean.posture : [];
+    S0.photos = Array.isArray(clean.photos) ? clean.photos.filter(isDateKey) : [];
+    S0.profile = Object.assign({}, DEFAULTS, clean.profile||{});
+    return S0;
   }
   const days = {};
-  Object.entries(raw.days||{}).forEach(([k,v])=>{
+  Object.entries(clean.days||{}).forEach(([k,v])=>{
+    if (!isDateKey(k)) return;
     if (v && v.checks) { days[k]=v; return; }
     const checks = {};
     Object.entries(v||{}).forEach(([id,val])=>{ if (typeof val === "boolean") checks[id]=val; });
@@ -63,20 +81,90 @@ function migrate(raw){
   });
   const S0 = blankState();
   S0.days = days;
-  S0.weights = raw.weights || [];
-  S0.firstUse = raw.firstUse || null;
+  S0.weights = Array.isArray(clean.weights) ? clean.weights.filter(w=>w && isDateKey(w.date) && Number.isFinite(+w.kg)) : [];
+  S0.firstUse = isDateKey(clean.firstUse) ? clean.firstUse : null;
   S0.profile.onboarded = !!(S0.weights.length || Object.keys(days).length);
   if (S0.weights.length && S0.profile.startKg == null) S0.profile.startKg = S0.weights[0].kg;
   return S0;
 }
 
-let S = blankState();
-try { const raw = store.get(STORE_KEY); if (raw) S = migrate(JSON.parse(raw)); } catch(e){}
+function readLocal(){
+  try {
+    const raw = store.get(STORE_KEY);
+    if (!raw || raw.length > 2e6) return null;
+    return migrate(JSON.parse(raw));
+  } catch(e){ return null; }
+}
+
+function idbOpen(){
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB){ reject(new Error("no-idb")); return; }
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE);
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+async function idbGet(){
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, "readonly");
+    const r = tx.objectStore(IDB_STORE).get(STORE_KEY);
+    r.onsuccess = () => resolve(r.result || null);
+    r.onerror = () => reject(r.error);
+  });
+}
+
+async function idbSet(value){
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, "readwrite");
+    tx.objectStore(IDB_STORE).put(value, STORE_KEY);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+let persistAsked = false;
+function requestPersist(){
+  if (persistAsked) return;
+  persistAsked = true;
+  try {
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(()=>{});
+  } catch(e){}
+}
+
+let S = readLocal() || blankState();
 if (!S.firstUse) S.firstUse = todayKey();
 if (!S.profile.phaseStart) S.profile.phaseStart = S.firstUse;
 if (S.profile.startKg == null && S.weights.length) S.profile.startKg = S.weights[0].kg;
 
-function save(){ store.set(STORE_KEY, JSON.stringify(S)); }
+function save(){
+  S.app = "avshot-health";
+  S.savedAt = Date.now();
+  const json = JSON.stringify(S);
+  if (json.length > 2e6) return;
+  store.set(STORE_KEY, json);
+  idbSet(cloneJson(S)).catch(()=>{});
+}
+
+async function hydrateFromDisk(){
+  let idb = null;
+  try { idb = await idbGet(); } catch(e){}
+  const fromIdb = idb ? migrate(idb) : null;
+  const fromLs = readLocal();
+  const a = fromIdb && (fromIdb.savedAt||0);
+  const b = fromLs && (fromLs.savedAt||0);
+  if (fromIdb && (!fromLs || a > b)) S = fromIdb;
+  else if (fromLs) S = fromLs;
+  if (!S.firstUse) S.firstUse = todayKey();
+  if (!S.profile.phaseStart) S.profile.phaseStart = S.firstUse;
+  save();
+}
 
 function dayObj(k){
   if (!S.days[k]) S.days[k] = { checks:{}, water:0, swaps:{}, ritual:{}, gymLog:null, walk:false };
@@ -165,7 +253,25 @@ function toast(msg){
 }
 
 /* ───────── domain ───────── */
-function isGymDay(dow){ return GYM_DAYS.includes(dow); }
+function isGymDay(dow){
+  const days = (S.profile && Array.isArray(S.profile.gymDays) && S.profile.gymDays.length)
+    ? S.profile.gymDays : GYM_DAYS;
+  return days.includes(dow);
+}
+function wantsPosture(){
+  const g = S.profile.goal || "both";
+  return g === "both" || g === "posture";
+}
+function applyComputed(p){
+  const c = computePlan(p);
+  Object.assign(p, {
+    kcal: c.kcal, protein: c.protein, kcalFloor: c.kcalFloor,
+    kcalMaintain: c.kcalMaintain, kcalDeficit: c.kcalDeficit,
+    goalLow: c.goalLow, goalHigh: c.goalHigh, bmr: c.bmr, tdee: c.tdee,
+    phase: p.phase && ["break","reverse"].includes(p.phase) ? p.phase : c.phase
+  });
+  return c;
+}
 function sessionFor(dow){ return SESSIONS[dow] || null; }
 
 function dayScore(k){
@@ -174,7 +280,8 @@ function dayScore(k){
   const gym = isGymDay(dow);
   const d = S.days[k] || { checks:{}, water:0 };
   const checks = d.checks || {};
-  const need = ["fruehstueck","mittag","snack","abend","haltung","supps"];
+  const need = ["fruehstueck","mittag","snack","abend","supps"];
+  if (wantsPosture()) need.push("haltung");
   if (gym) need.push("gym");
   const hit = need.filter(id => checks[id]).length;
   const waterOk = (d.water||0) >= S.profile.waterMl * 0.8;
@@ -334,6 +441,9 @@ let tab = "heute";
 let openMeal = null;
 let deferredPrompt = null;
 let guide = null;
+let onbStep = 0;
+let draft = null;
+const UNLOCK_KEY = "avshot-unlocked";
 
 function isStandalone(){
   return window.matchMedia("(display-mode: standalone)").matches
@@ -342,6 +452,33 @@ function isStandalone(){
 function isIOS(){
   return /iphone|ipad|ipod/i.test(navigator.userAgent)
     || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}
+
+function isUnlocked(){
+  if (!S.profile.pinHash) return true;
+  try { return sessionStorage.getItem(UNLOCK_KEY) === "1"; } catch(e){ return false; }
+}
+function setUnlocked(on){
+  try { if (on) sessionStorage.setItem(UNLOCK_KEY,"1"); else sessionStorage.removeItem(UNLOCK_KEY); } catch(e){}
+}
+function bufToB64(buf){
+  const bytes = new Uint8Array(buf);
+  let out = "";
+  for (let i=0;i<bytes.length;i++) out += String.fromCharCode(bytes[i]);
+  return btoa(out);
+}
+function b64ToBuf(b64){
+  const raw = atob(b64);
+  const u = new Uint8Array(raw.length);
+  for (let i=0;i<raw.length;i++) u[i] = raw.charCodeAt(i);
+  return u;
+}
+async function hashPin(pin, saltB64){
+  const enc = new TextEncoder();
+  const salt = saltB64 ? b64ToBuf(saltB64) : crypto.getRandomValues(new Uint8Array(16));
+  const key = await crypto.subtle.importKey("raw", enc.encode(String(pin)), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits({ name:"PBKDF2", hash:"SHA-256", salt, iterations:120000 }, key, 256);
+  return { hash: bufToB64(bits), salt: bufToB64(salt) };
 }
 
 window.addEventListener("beforeinstallprompt", e=>{
@@ -402,7 +539,7 @@ function addWeight(){
   S.weights = [...S.weights.filter(w=>w.date!==k), { date:k, kg:v }].sort((a,b)=>a.date.localeCompare(b.date));
   if (S.profile.startKg == null) S.profile.startKg = v;
   const d = dayObj(k); d.ritual.weighed = true;
-  save(); buzz(28); render(); toast("Gewicht gespeichert");
+  save(); requestPersist(); buzz(28); render(); toast("Gewicht gespeichert auf diesem Gerät");
 }
 
 function delWeight(date){
@@ -450,7 +587,7 @@ function ensureGymLog(sess){
 function patchSet(exId, i, field, val){
   const d = dayObj(todayKey());
   if (!d.gymLog || !d.gymLog.sets[exId]) return;
-  d.gymLog.sets[exId][i][field] = val;
+  d.gymLog.sets[exId][i][field] = sanitizeNumInput(val);
   save();
 }
 
@@ -556,18 +693,7 @@ function togglePrep(i){
   save(); render();
 }
 
-function finishOnboard(){
-  const kg = parseDec($("#ob-kg").value);
-  const cm = parseDec($("#ob-cm").value);
-  if (!kg || kg<40 || kg>250){ toast("Startgewicht eintragen"); return; }
-  S.profile.startKg = kg;
-  S.profile.onboarded = true;
-  if (Number.isFinite(cm) && cm>=140 && cm<=220) S.profile.heightCm = cm;
-  const k = todayKey();
-  S.weights = [...S.weights.filter(w=>w.date!==k), { date:k, kg }].sort((a,b)=>a.date.localeCompare(b.date));
-  dayObj(k).ritual.weighed = true;
-  save(); buzz(30); render();
-}
+function finishOnboard(){ onbNext(); }
 
 function exportData(){
   const blob = new Blob([JSON.stringify(S,null,2)], {type:"application/json"});
@@ -580,11 +706,19 @@ function exportData(){
 
 function importData(file){
   if (!file) return;
+  if (file.size > 2e6){ toast("Datei zu groß"); return; }
   const reader = new FileReader();
   reader.onload = () => {
     try{
-      S = migrate(JSON.parse(reader.result));
-      save(); toast("Daten importiert"); render();
+      if (String(reader.result).length > 2e6) throw new Error("big");
+      const parsed = JSON.parse(reader.result);
+      const next = migrate(parsed);
+      if (!next || next.app !== "avshot-health") throw new Error("app");
+      S = next;
+      save();
+      setUnlocked(false);
+      toast("Daten importiert — PIN eingeben");
+      render();
     }catch(e){ toast("Datei ungültig"); }
   };
   reader.readAsText(file);
@@ -614,7 +748,7 @@ function installBanner(){
     return `<div class="banner">
       <div style="font-weight:700;margin-bottom:4px">Aufs Handy legen</div>
       <div style="font-size:13px;color:var(--muted);margin-bottom:10px">Eigene App auf dem Startbildschirm. Offline, ohne Account, Daten bleiben hier.</div>
-      <button class="btn" onclick="AV.installApp()">Jetzt installieren</button>
+      <button class="btn" data-act="install">Jetzt installieren</button>
     </div>`;
   }
   if (isIOS()){
@@ -626,7 +760,7 @@ function installBanner(){
         <li><b>2</b><span>Nach unten scrollen → <b style="color:var(--text)">Zum Home-Bildschirm</b>.</span></li>
         <li><b>3</b><span>Hinzufügen. Danach AV Health wie jede andere App öffnen.</span></li>
       </ol>
-      <button class="btn ghost sm" style="margin-top:10px" onclick="AV.hideInstall()">Später</button>
+      <button class="btn ghost sm" style="margin-top:10px" data-act="hide-install">Später</button>
     </div>`;
   }
   return `<div class="banner">
@@ -634,7 +768,7 @@ function installBanner(){
     <div style="font-size:13px;color:var(--muted);line-height:1.5;margin-bottom:10px">
       Chrome oder Edge: Menü <b style="color:var(--text)">⋮</b> oben rechts → <b style="color:var(--text)">App installieren</b> bzw. <b style="color:var(--text)">Zum Startbildschirm</b>.
     </div>
-    <button class="btn ghost sm" onclick="AV.hideInstall()">Später</button>
+    <button class="btn ghost sm" data-act="hide-install">Später</button>
   </div>`;
 }
 
@@ -713,7 +847,7 @@ function finishGuide(){
     <div style="font-size:14px;color:var(--muted);text-align:center;line-height:1.6;max-width:320px">
       Haltungsarbeit für heute abgehakt.<br>Dein Nacken merkt das nicht morgen — er merkt das in acht Wochen.</div>
     <div style="flex:1"></div>
-    <button class="btn big" onclick="AV.stopGuide()">Fertig</button>`;
+    <button class="btn big" data-act="guide-stop">Fertig</button>`;
 }
 
 function updateGuideNums(){
@@ -761,7 +895,7 @@ function renderGuide(rebuild){
   }
   g.innerHTML = `
     <div style="width:100%;display:flex;justify-content:space-between;align-items:center">
-      <button class="btn ghost sm" onclick="AV.stopGuide()">✕ Beenden</button>
+      <button class="btn ghost sm" data-act="guide-stop">✕ Beenden</button>
       <div data-ghead style="font-size:12px;color:var(--muted)">Block ${guide.idx+1}/${q.length} · ~${Math.max(0,Math.round((total-elapsed)/60))} Min übrig</div>
     </div>
     <div style="flex:0.4"></div>
@@ -778,8 +912,8 @@ function renderGuide(rebuild){
     <div id="gcue" style="font-size:13.5px;color:var(--muted);text-align:center;line-height:1.55;max-width:330px" class="${guide.paused?"":"pulse"}">${esc(guide.paused?"Pausiert":cue)}</div>
     <div style="flex:1"></div>
     <div style="display:flex;gap:10px;width:100%;max-width:360px">
-      <button class="btn ghost" data-pause style="flex:1;padding:14px" onclick="AV.pauseGuide()">${guide.paused?"▶ Weiter":"❚❚ Pause"}</button>
-      <button class="btn ghost" style="flex:1;padding:14px" onclick="AV.skipGuide()">Weiter ›</button>
+      <button class="btn ghost" data-pause style="flex:1;padding:14px" data-act="guide-pause">${guide.paused?"▶ Weiter":"❚❚ Pause"}</button>
+      <button class="btn ghost" style="flex:1;padding:14px" data-act="guide-skip">Weiter ›</button>
     </div>`;
 }
 
@@ -790,7 +924,7 @@ document.addEventListener("visibilitychange", ()=>{
 
 /* ───────── render ───────── */
 function header(now, dow, gym, streak){
-  const phase = PHASES[S.profile.phase];
+  const phase = PHASES[S.profile.phase] || PHASES.deficit;
   const label = gym ? "Trainingstag" : (dow===0 ? "Flexibler Tag" : "Ruhetag + Meal Prep");
   return `<div class="head">
       <div class="brand">AV·SHOT&nbsp;HEALTH</div>
@@ -800,7 +934,8 @@ function header(now, dow, gym, streak){
       </div>
     </div>
     <h1>${WD[dow]}</h1>
-    <div class="sub">${now.toLocaleDateString("de-DE",{day:"numeric",month:"long"})} · ${label}</div>`;
+    <div class="sub">${now.toLocaleDateString("de-DE",{day:"numeric",month:"long"})} · ${label}${S.profile.name?` · ${esc(S.profile.name)}`:""}</div>
+    ${S.savedAt?`<div class="sub" style="margin-top:-10px">Gespeichert ${new Date(S.savedAt).toLocaleString("de-DE",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})} · nur dieses Gerät</div>`:""}`;
 }
 
 function weekStrip(now){
@@ -845,27 +980,27 @@ function renderHeute(now, dow, gym, d, sc){
   html += `<div class="card"><div class="k" style="font-size:11px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase">Wasser · keine Kalorien trinken</div>
     <div class="water">`;
   for (let i=0;i<cups;i++){
-    html += `<button class="cup ${i<filled?"on":""}" onclick="AV.waterCup(${i})" aria-label="${(i+1)*cupMl} ml"></button>`;
+    html += `<button class="cup ${i<filled?"on":""}" data-act="water-cup" data-i="${i}" aria-label="${(i+1)*cupMl} ml"></button>`;
   }
   html += `</div>
     <div class="row">
-      <button class="btn ghost sm" style="flex:1" onclick="AV.setWater(${d.water+250})">+250 ml</button>
-      <button class="btn ghost sm" style="flex:1" onclick="AV.setWater(${d.water+500})">+500 ml</button>
-      <button class="btn ghost sm" style="flex:1" onclick="AV.setWater(0)">Reset</button>
+      <button class="btn ghost sm" style="flex:1" data-act="water-add" data-ml="250">+250 ml</button>
+      <button class="btn ghost sm" style="flex:1" data-act="water-add" data-ml="500">+500 ml</button>
+      <button class="btn ghost sm" style="flex:1" data-act="water-reset">Reset</button>
     </div></div>`;
 
   if (dow===0){
     html += `<div class="banner"><div class="gold" style="font-weight:700;margin-bottom:8px">Sonntags-Check</div>
-      <button class="task ${d.ritual.weighed?"done":""}" onclick="AV.setTab('koerper')">
+      <button class="task ${d.ritual.weighed?"done":""}" data-act="tab" data-id="koerper">
         <div class="chk">${d.ritual.weighed?"✓":""}</div>
         <div><div class="l1">Nüchtern wiegen</div><div class="l2">Trend, nicht die einzelne Zahl</div></div></button>
-      <button class="task ${d.ritual.mirror?"done":""}" onclick="AV.setTab('haltung')">
+      <button class="task ${d.ritual.mirror?"done":""}" data-act="tab" data-id="haltung">
         <div class="chk">${d.ritual.mirror?"✓":""}</div>
         <div><div class="l1">Spiegeltest</div><div class="l2">Ohr über Schulter? Rippen unten? Knöchel unsichtbar?</div></div></button>
-      <button class="task ${d.ritual.mealPrep?"done":""}" onclick="AV.setTab('plan')">
+      <button class="task ${d.ritual.mealPrep?"done":""}" data-act="tab" data-id="plan">
         <div class="chk">${d.ritual.mealPrep?"✓":""}</div>
         <div><div class="l1">Meal Prep Mo–Di</div><div class="l2">Bowls kochen, Snacks legen</div></div></button>
-      ${photoDue()?`<button class="task ${d.ritual.photos?"done":""}" onclick="AV.logPhoto()">
+      ${photoDue()?`<button class="task ${d.ritual.photos?"done":""}" data-act="photo">
         <div class="chk">${d.ritual.photos?"✓":""}</div>
         <div><div class="l1">Fortschrittsfotos</div><div class="l2">3 Posen, gleiches Licht wie am Start</div></div></button>`:""}
     </div>`;
@@ -876,8 +1011,8 @@ function renderHeute(now, dow, gym, d, sc){
     const r = RECIPES[m.rid];
     const open = openMeal===m.id;
     html += `<div class="task ${d.checks[m.id]?"done":""}">
-      <button class="chk" onclick="AV.toggle('${m.id}')">${d.checks[m.id]?"✓":""}</button>
-      <button style="flex:1;min-width:0;background:none;border:none;color:inherit;text-align:left;padding:0" onclick="AV.toggleMeal('${m.id}')">
+      <button class="chk" data-act="toggle" data-id="${m.id}">${d.checks[m.id]?"✓":""}</button>
+      <button style="flex:1;min-width:0;background:none;border:none;color:inherit;text-align:left;padding:0" data-act="meal" data-id="${m.id}">
         <div class="l1">${esc(m.label)}</div>
         <div class="l2">${esc(r.name)}</div>
       </button>
@@ -889,7 +1024,7 @@ function renderHeute(now, dow, gym, d, sc){
       if (SWAPS[m.id]){
         html += `<div class="swaps">`;
         SWAPS[m.id].forEach(([rid,lab])=>{
-          html += `<button class="chip ${m.rid===rid?"on":""}" onclick="AV.swapMeal('${m.id}','${rid}')">${esc(lab)}</button>`;
+          html += `<button class="chip ${m.rid===rid?"on":""}" data-act="swap" data-slot="${m.id}" data-rid="${rid}">${esc(lab)}</button>`;
         });
         html += `</div>`;
       }
@@ -898,20 +1033,20 @@ function renderHeute(now, dow, gym, d, sc){
   });
 
   html += `<div class="sect">Training &amp; Routine</div>`;
-  html += `<button class="task ${d.checks.haltung?"done":""}" onclick="AV.setTab('haltung')">
+  html += `<button class="task ${d.checks.haltung?"done":""}" data-act="tab" data-id="haltung">
     <div class="chk">${d.checks.haltung?"✓":""}</div>
     <div style="flex:1"><div class="l1">10 Min Haltungsroutine</div><div class="l2">Geführt mit Timer, Pausen und Atem-Cues</div></div></button>`;
   if (gym){
     const sess = sessionFor(dow);
-    html += `<button class="task ${d.checks.gym?"done":""}" onclick="AV.setTab('gym')">
+    html += `<button class="task ${d.checks.gym?"done":""}" data-act="tab" data-id="gym">
       <div class="chk">${d.checks.gym?"✓":""}</div>
       <div style="flex:1"><div class="l1">${esc(sess.name)} · ~${sess.minutes} Min</div><div class="l2">${esc(sess.focus)} · 2 Sätze Zug pro 1 Satz Druck</div></div></button>`;
   } else {
-    html += `<button class="task ${d.checks.walk?"done":""}" onclick="AV.toggle('walk')">
+    html += `<button class="task ${d.checks.walk?"done":""}" data-act="toggle" data-id="walk">
       <div class="chk">${d.checks.walk?"✓":""}</div>
       <div style="flex:1"><div class="l1">30 Min spazieren</div><div class="l2">Hüfte öffnen, Defizit füttern, ohne die Gelenke zu plündern</div></div></button>`;
   }
-  html += `<button class="task ${d.checks.supps?"done":""}" onclick="AV.toggle('supps')">
+  html += `<button class="task ${d.checks.supps?"done":""}" data-act="toggle" data-id="supps">
     <div class="chk">${d.checks.supps?"✓":""}</div>
     <div style="flex:1"><div class="l1">Kreatin 5 g + Vitamin D3</div><div class="l2">Zeitpunkt egal — Hauptsache täglich</div></div></button>`;
 
@@ -952,7 +1087,7 @@ function renderGym(now, dow, gym, d){
   if (!gym){
     const rest = REST_DAY[dow];
     html += `<div class="coach" style="margin-top:8px">${esc(rest.hook)}</div>
-      <button class="task ${d.checks.walk?"done":""}" onclick="AV.toggle('walk')">
+      <button class="task ${d.checks.walk?"done":""}" data-act="toggle" data-id="walk">
         <div class="chk">${d.checks.walk?"✓":""}</div>
         <div><div class="l1">30 Min spazieren</div><div class="l2">Heute kein Eisen. Haltung und Prep zählen voll.</div></div></button>`;
     return html;
@@ -982,19 +1117,19 @@ function renderGym(now, dow, gym, d){
     rows.forEach((row,i)=>{
       html += `<div class="setrow">
         <div class="n">${i+1}</div>
-        <button class="step" onclick="AV.stepKg('${ex.id}',${i},-1)">−</button>
+        <button class="step" data-act="step-kg" data-ex="${ex.id}" data-i="${i}" data-dir="-1">−</button>
         <input type="text" inputmode="decimal" value="${row.kg===""?"":esc(String(row.kg)).replace(".",",")}"
-          oninput="AV.patchSet('${ex.id}',${i},'kg',this.value)" placeholder="kg">
-        <button class="step" onclick="AV.stepKg('${ex.id}',${i},1)">+</button>
+          data-act="patch-set" data-ex="${ex.id}" data-i="${i}" data-field="kg" placeholder="kg">
+        <button class="step" data-act="step-kg" data-ex="${ex.id}" data-i="${i}" data-dir="1">+</button>
         <input type="text" inputmode="numeric" value="${esc(String(row.reps))}"
-          oninput="AV.patchSet('${ex.id}',${i},'reps',this.value)" placeholder="Wdh">
-        <button class="chk ${row.ok?"done":""}" onclick="AV.toggleSet('${ex.id}',${i})">${row.ok?"✓":""}</button>
+          data-act="patch-set" data-ex="${ex.id}" data-i="${i}" data-field="reps" placeholder="Wdh">
+        <button class="chk ${row.ok?"done":""}" data-act="set-ok" data-ex="${ex.id}" data-i="${i}">${row.ok?"✓":""}</button>
       </div>`;
     });
     html += `</div>`;
   });
 
-  html += `<button class="btn big" onclick="AV.finishGym()">Training abschließen</button>
+  html += `<button class="btn big" data-act="gym-finish">Training abschließen</button>
     <div class="sub" style="text-align:center;margin-top:10px">Hakt Gym für heute ab und merkt sich die Lasten.</div>`;
   return html;
 }
@@ -1007,8 +1142,8 @@ function renderHaltung(d){
       ${QUEUE_FULL.filter(s=>s.type==="work").length} Arbeitsblöcke · ~${totalMin} Minuten inklusive kurzer Pausen.
       Bildschirm bleibt an. Hüftbeuger ist die wichtigste Übung — nicht skippen.
     </div>
-    <button class="btn big" onclick="AV.startGuide('full')">Routine starten</button>
-    <button class="btn ghost big" style="margin-top:8px" onclick="AV.startGuide('desk')">2-Minuten-Schreibtisch-Reset</button>
+    <button class="btn big" data-act="guide" data-mode="full">Routine starten</button>
+    <button class="btn ghost big" style="margin-top:8px" data-act="guide" data-mode="desk">2-Minuten-Schreibtisch-Reset</button>
   </div>`;
 
   html += `<div class="sect">Die 5 Übungen</div>`;
@@ -1033,7 +1168,7 @@ function renderHaltung(d){
     });
     html += `</div></div>`;
   });
-  html += `<button class="btn" onclick="AV.saveMirror()">Test speichern</button>`;
+  html += `<button class="btn" data-act="mirror">Test speichern</button>`;
   if (last){
     html += `<div class="sub" style="margin:10px 0 0">Zuletzt ${parseKey(last.date).toLocaleDateString("de-DE")} · ${last.score}/6 Punkte
       (6 = Ohr über Schulter, Rippen unten, Knöchel unsichtbar).</div>`;
@@ -1091,7 +1226,7 @@ function renderKoerper(){
   const tr = weightTrend();
   let html = `<div class="card"><div style="font-size:13px;color:var(--muted);margin-bottom:10px">Neuer Eintrag · morgens, nüchtern, nach dem Klo, vor dem Essen</div>
     <div class="row"><input type="text" id="win" inputmode="decimal" placeholder="${S.profile.startKg?fmtKg(S.profile.startKg):"z. B. 98,4"}" enterkeyhint="done">
-    <button class="btn" onclick="AV.addWeight()">Speichern</button></div>
+    <button class="btn" data-act="weight-add">Speichern</button></div>
     <div class="sub" style="margin:8px 0 0">Sonntag reicht. Wer täglich wiegt, darf — der Trend entscheidet trotzdem.</div></div>`;
 
   if (tr){
@@ -1101,7 +1236,7 @@ function renderKoerper(){
       <div class="stat"><div class="k">seit Start</div><div class="v" style="color:${tr.total<=0?"var(--green)":"var(--red)"}">${tr.total>0?"+":""}${fmtKg(tr.total)} <span>kg</span></div></div>
     </div>`;
     html += `<div class="card eta">Ziel ${S.profile.goalLow}–${S.profile.goalHigh} kg.
-      ${tr.eta?`Bei diesem Tempo bist du um den <b style="color:var(--text)">${tr.eta.toLocaleDateString("de-DE",{day:"numeric",month:"long"})}</b> in der Zone — Tempo darf 0,4–0,8 kg/Woche sein, nicht 1,5.`:
+      ${tr.eta?`Bei diesem Tempo bist du um den <b style="color:var(--text)">${tr.eta.toLocaleDateString("de-DE",{day:"numeric",month:"long"})}</b> in der Zone. Gesund sind etwa ${fmtN(computePlan(S.profile).lossMinKg)}–${fmtN(computePlan(S.profile).lossMaxKg)} kg/Woche (0,5–1 % des Gewichts) — nicht 1,5.`:
         (tr.cur<=S.profile.goalHigh?`Du bist in oder an der Zone. Reverse Diet steht im Plan.`:`Noch ${fmtKg(tr.cur-tr.goal)} kg bis zur Mitte der Zone. Mehr Daten → klareres Tempo.`)}
       ${tr.plateau?`<div class="gold" style="margin-top:8px">Plateau-Hinweis: 150 kcal streichen liegt im Plan. Button dafür unter Plan.</div>`:""}
     </div>`;
@@ -1113,7 +1248,7 @@ function renderKoerper(){
     <div class="card" style="font-size:13px;color:var(--muted);line-height:1.5">
       Alle 4 Wochen, gleiche 3 Posen, gleiches Licht. Die App speichert kein Bild — nur das Datum, damit du es nicht „nächste Woche“ machst.
       ${photoDue()?`<div class="gold" style="margin-top:8px">Diese Woche ist Foto-Woche.</div>
-        <button class="btn sm" style="margin-top:10px" onclick="AV.logPhoto()">Heute fotografiert</button>`:""}
+        <button class="btn sm" style="margin-top:10px" data-act="photo">Heute fotografiert</button>`:""}
       ${S.photos.length?`<div style="margin-top:8px">Markiert: ${S.photos.map(d=>parseKey(d).toLocaleDateString("de-DE")).join(" · ")}</div>`:`<div style="margin-top:8px">Noch kein Fototermin markiert.</div>`}
     </div>`;
 
@@ -1125,7 +1260,7 @@ function renderKoerper(){
         <div style="flex:1"><div class="l1" style="text-decoration:none">${fmtKg(w.kg)} kg</div>
         <div class="l2">${parseKey(w.date).toLocaleDateString("de-DE",{day:"numeric",month:"short",year:"numeric"})}</div></div>
         ${diff!==null?`<span style="font-size:13px;color:${diff<=0?"var(--green)":"var(--red)"}">${diff<=0?"▼":"▲"} ${fmtKg(Math.abs(diff))}</span>`:""}
-        <button onclick="AV.delWeight('${w.date}')" style="background:none;border:none;color:var(--muted);font-size:16px;padding:4px 2px 4px 10px">✕</button></div>`;
+        <button data-act="weight-del" data-date="${w.date}" style="background:none;border:none;color:var(--muted);font-size:16px;padding:4px 2px 4px 10px">✕</button></div>`;
     });
   } else {
     html += `<div class="card" style="text-align:center;color:var(--muted)">Noch kein Eintrag. Startgewicht rein — ab dann wächst die Kurve Richtung ${S.profile.goalLow}–${S.profile.goalHigh} kg.</div>`;
@@ -1142,12 +1277,12 @@ function renderPlan(dow){
     <div class="head"><div style="font-weight:700">${esc(ph.label)}</div><span class="pill">Woche ${phaseWeeks()+1}</span></div>
     <div class="sub" style="margin:8px 0 12px">${esc(ph.hint)} Aktuell ${S.profile.kcal} kcal · ${S.profile.protein} g Protein.</div>
     <div class="row" style="flex-wrap:wrap">
-      ${S.profile.phase==="deficit"?`<button class="btn sm" onclick="AV.applyCut()">−150 kcal</button>
-        <button class="btn ghost sm" onclick="AV.startBreak()">Diätpause starten</button>
-        <button class="btn ghost sm" onclick="AV.startReverse()">Am Ziel: Reverse</button>`:""}
-      ${S.profile.phase==="break"?`<button class="btn sm" onclick="AV.endBreak()">Pause beenden</button>`:""}
-      ${S.profile.phase==="reverse"?`<button class="btn sm" onclick="AV.reverseStep()">+150 kcal Schritt</button>
-        <button class="btn ghost sm" onclick="AV.endBreak()">Zurück ins Defizit</button>`:""}
+      ${S.profile.phase==="deficit"?`<button class="btn sm" data-act="cut">−150 kcal</button>
+        <button class="btn ghost sm" data-act="break-start">Diätpause starten</button>
+        <button class="btn ghost sm" data-act="reverse">Am Ziel: Reverse</button>`:""}
+      ${S.profile.phase==="break"?`<button class="btn sm" data-act="break-end">Pause beenden</button>`:""}
+      ${S.profile.phase==="reverse"?`<button class="btn sm" data-act="reverse-step">+150 kcal Schritt</button>
+        <button class="btn ghost sm" data-act="break-end">Zurück ins Defizit</button>`:""}
     </div>
   </div>`;
 
@@ -1165,7 +1300,7 @@ function renderPlan(dow){
     const checks = d.ritual.prep || {};
     html += `<div class="sect">${esc(prep.title)}</div><div class="card">`;
     prep.items.forEach((item,i)=>{
-      html += `<button class="listrow" style="width:100%;background:none;border:none;color:inherit;text-align:left" onclick="AV.togglePrep(${i})">
+      html += `<button class="listrow" style="width:100%;background:none;border:none;color:inherit;text-align:left" data-act="prep" data-i="${i}">
         <span class="checkx ${checks[i]?"on":""}">${checks[i]?"✓":""}</span><span>${esc(item)}</span></button>`;
     });
     html += `</div>`;
@@ -1178,7 +1313,7 @@ function renderPlan(dow){
   shop.forEach((it, i)=>{
     const key = it.n.toLowerCase();
     const on = !!(S.shop.checks||{})[key];
-    html += `<button class="listrow" style="width:100%;background:none;border:none;color:inherit;text-align:left" onclick="AV.toggleShop(${i})">
+    html += `<button class="listrow" style="width:100%;background:none;border:none;color:inherit;text-align:left" data-act="shop" data-i="${i}">
       <span class="checkx ${on?"on":""}">${on?"✓":""}</span>
       <span>${it.count>1?`<span class="muted">${it.count}× </span>`:""}${it.q?`<span class="muted">${esc(it.q)}</span> `:""}${esc(it.n)}</span></button>`;
   });
@@ -1197,17 +1332,17 @@ function renderPlan(dow){
     <div class="field"><label>Größe (cm, optional)</label><input id="set-height" type="text" inputmode="numeric" value="${S.profile.heightCm||""}" placeholder="z. B. 178"></div>
     <label class="listrow"><span>Ton</span><input id="set-sound" type="checkbox" ${S.profile.sound?"checked":""}></label>
     <label class="listrow"><span>Vibration</span><input id="set-haptic" type="checkbox" ${S.profile.haptic?"checked":""}></label>
-    <button class="btn" style="margin-top:8px" onclick="AV.saveSettings()">Speichern</button>
+    <button class="btn" style="margin-top:8px" data-act="settings">Speichern</button>
   </div>`;
 
   html += `<div class="sect">Daten</div><div class="card">
     <div class="row">
-      <button class="btn ghost sm" style="flex:1" onclick="AV.exportData()">Export</button>
+      <button class="btn ghost sm" style="flex:1" data-act="export">Export</button>
       <label class="btn ghost sm" style="flex:1;text-align:center">Import
-        <input type="file" accept="application/json" style="display:none" onchange="AV.importData(this.files[0])">
+        <input type="file" accept="application/json" style="display:none" data-act="import">
       </label>
     </div>
-    <div class="sub" style="margin:10px 0 0">Alles bleibt lokal auf diesem Gerät. Kein Account, keine Cloud.</div>
+    <div class="sub" style="margin:10px 0 0">Kein Account, keine Cloud. Gewicht und Training liegen nur auf diesem Handy — doppelt gesichert (Gerät + lokale Datenbank). Export ist dein Backup, falls du das Handy wechselst.</div>
   </div>
   <div style="font-size:13px;color:var(--muted);line-height:1.6;padding:6px 2px 18px">
     80 % Konsequenz über 8 Monate schlägt 100 % Perfektion über 3 Wochen. Der Sonntag ist bewusst flexibel — der Plan passt in dein Leben, nicht umgekehrt. Das ist ein persönlicher Begleiter, kein medizinischer Rat.
@@ -1215,35 +1350,227 @@ function renderPlan(dow){
   return html;
 }
 
+function ensureDraft(){
+  if (draft) return draft;
+  draft = Object.assign({}, DEFAULTS, S.profile||{}, {
+    name: (S.profile && S.profile.name) || "Albin",
+    sex: (S.profile && S.profile.sex) || "m",
+    goal: (S.profile && S.profile.goal) || "both",
+    gymDays: (S.profile && S.profile.gymDays && S.profile.gymDays.slice()) || [1,2,4,5,6],
+    halal: S.profile && S.profile.halal !== false,
+    targetKg: (S.profile && S.profile.targetKg) || 88
+  });
+  return draft;
+}
+
+function captureOnboardFields(){
+  const d = ensureDraft();
+  const val = id => { const el = document.getElementById(id); return el ? el.value : ""; };
+  if (onbStep === 0){
+    const n = val("ob-name").trim();
+    if (n) d.name = n.slice(0,40);
+    const sex = document.querySelector("[data-sex].on");
+    if (sex) d.sex = sex.getAttribute("data-sex");
+  }
+  if (onbStep === 1){
+    const age = parseDec(val("ob-age"));
+    const cm = parseDec(val("ob-cm"));
+    const kg = parseDec(val("ob-kg"));
+    const tgt = parseDec(val("ob-tgt"));
+    if (Number.isFinite(age) && age>=14 && age<=80) d.age = age;
+    if (Number.isFinite(cm) && cm>=140 && cm<=220) d.heightCm = cm;
+    if (Number.isFinite(kg) && kg>=40 && kg<=250) d.startKg = kg;
+    if (Number.isFinite(tgt) && tgt>=40 && tgt<=250) d.targetKg = tgt;
+  }
+}
+
+function onbBack(){
+  captureOnboardFields();
+  onbStep = Math.max(0, onbStep-1);
+  render();
+}
+
+function onbNext(){
+  captureOnboardFields();
+  const d = ensureDraft();
+  if (onbStep === 0){
+    if (!d.name){ toast("Name eintragen"); return; }
+    onbStep = 1; render(); return;
+  }
+  if (onbStep === 1){
+    if (!d.startKg || !d.heightCm){ toast("Gewicht und Größe braucht der Plan"); return; }
+    onbStep = 2; render(); return;
+  }
+  if (onbStep === 2){
+    onbStep = 3; render(); return;
+  }
+  if (onbStep === 3){
+    onbStep = 4; render(); return;
+  }
+}
+
+function onbGoal(g){ ensureDraft().goal = g; render(); }
+function onbSex(sx){ ensureDraft().sex = sx; render(); }
+function onbHalal(){ const d=ensureDraft(); d.halal = !d.halal; render(); }
+function onbGymDay(day){
+  const d = ensureDraft();
+  d.gymDays = d.gymDays || [];
+  const n = +day;
+  d.gymDays = d.gymDays.includes(n) ? d.gymDays.filter(x=>x!==n) : d.gymDays.concat(n).sort();
+  render();
+}
+
+async function onbSetPin(){
+  captureOnboardFields();
+  const a = ($("#ob-pin")||{}).value || "";
+  const b = ($("#ob-pin2")||{}).value || "";
+  if (!/^\d{4,8}$/.test(a)){ toast("PIN: 4–8 Ziffern"); return; }
+  if (a !== b){ toast("PIN stimmt nicht überein"); return; }
+  try{
+    const { hash, salt } = await hashPin(a);
+    commitProfile(hash, salt);
+  }catch(e){ toast("PIN nicht speicherbar — HTTPS oder localhost"); }
+}
+
+async function unlockPin(){
+  const pin = ($("#lock-pin")||{}).value || "";
+  if (!pin){ toast("PIN eingeben"); return; }
+  try{
+    const { hash } = await hashPin(pin, S.profile.pinSalt);
+    if (hash !== S.profile.pinHash){ toast("Falsche PIN"); buzz([40,40,40]); return; }
+    setUnlocked(true);
+    requestPersist();
+    render();
+  }catch(e){ toast("Entsperren fehlgeschlagen"); }
+}
+
+function commitProfile(pinHash, pinSalt){
+  const d = ensureDraft();
+  const computed = applyComputed(d);
+  Object.assign(S.profile, d, computed, { onboarded: true, pinHash, pinSalt, phaseStart: S.profile.phaseStart || todayKey() });
+  const k = todayKey();
+  S.weights = [...S.weights.filter(w=>w.date!==k), { date:k, kg:d.startKg }].sort((a,b)=>a.date.localeCompare(b.date));
+  dayObj(k).ritual.weighed = true;
+  save();
+  requestPersist();
+  setUnlocked(true);
+  draft = null; onbStep = 0;
+  buzz(30);
+  toast("Profil gespeichert auf diesem Gerät");
+  render();
+}
+
+function renderLock(){
+  document.body.classList.add("onboard-on");
+  $("#tabbar").innerHTML = "";
+  $("#app").innerHTML = `<div class="onb fadein">
+    <div class="brand">AV·SHOT HEALTH</div>
+    <h1>Nur für dich.</h1>
+    <div class="sub">Persönliche Daten bleiben auf diesem Gerät. PIN eingeben, um Gewicht, Mahlzeiten und Training zu sehen.</div>
+    <div class="card">
+      <div class="field"><label>PIN</label>
+        <input id="lock-pin" type="password" inputmode="numeric" maxlength="8" autocomplete="off"></div>
+      <button class="btn big" data-act="unlock">Entsperren</button>
+    </div>
+  </div>`;
+}
+
 function renderOnboard(){
   document.body.classList.add("onboard-on");
   document.body.classList.remove("guide-on");
   $("#tabbar").innerHTML = "";
+  const d = ensureDraft();
+  const step = S.profile.onboarded && !S.profile.pinHash ? 4 : onbStep;
+  if (S.profile.onboarded && !S.profile.pinHash) onbStep = 4;
+  let body = "";
+  if (step === 0){
+    body = `<h1>Profil.</h1>
+      <div class="sub">Nur auf diesem Handy. Kein Account, keine Cloud, nicht öffentlich auffindbar.</div>
+      <div class="card">
+        <div class="field"><label>Name</label><input id="ob-name" type="text" value="${esc(d.name||"Albin")}"></div>
+        <div class="field"><label>Geschlecht — für Kalorien und Protein</label>
+          <div class="row">
+            <button class="chip ${d.sex!=="f"?"on":""}" data-act="ob-sex" data-sex="m">Mann</button>
+            <button class="chip ${d.sex==="f"?"on":""}" data-act="ob-sex" data-sex="f">Frau</button>
+          </div></div>
+        <button class="btn big" data-act="onb-next">Weiter</button>
+      </div>`;
+  }
+  if (step === 1){
+    body = `<h1>Körper.</h1>
+      <div class="sub">Nüchternes Gewicht, Größe, optional Alter. Zielgewicht Vorschlag 88 kg — du kannst ihn ändern.</div>
+      <div class="card">
+        <div class="field"><label>Aktuelles Gewicht, nüchtern (kg)</label>
+          <input id="ob-kg" type="text" inputmode="decimal" value="${d.startKg||""}" placeholder="z. B. 98,4"></div>
+        <div class="field"><label>Größe (cm)</label>
+          <input id="ob-cm" type="text" inputmode="numeric" value="${d.heightCm||""}" placeholder="z. B. 178"></div>
+        <div class="field"><label>Alter (optional)</label>
+          <input id="ob-age" type="text" inputmode="numeric" value="${d.age||""}" placeholder="z. B. 32"></div>
+        <div class="field"><label>Zielgewicht (kg)</label>
+          <input id="ob-tgt" type="text" inputmode="decimal" value="${d.targetKg||88}" placeholder="88"></div>
+        <div class="row"><button class="btn ghost" style="flex:1" data-act="onb-back">Zurück</button>
+          <button class="btn" style="flex:1" data-act="onb-next">Weiter</button></div>
+      </div>`;
+  }
+  if (step === 2){
+    const days = d.gymDays || [];
+    body = `<h1>Ziel.</h1>
+      <div class="sub">Fettabbau plus Haltung ist der Standard. Kein Crash, kein Detox, kein 1200-kcal-Unsinn.</div>
+      <div class="card">
+        <div class="field"><label>Was willst du?</label>
+          <div class="swaps" style="padding:0">${GOAL_OPTS.map(([id,l])=>`<button class="chip ${d.goal===id?"on":""}" data-act="ob-goal" data-goal="${id}">${l}</button>`).join("")}</div></div>
+        <div class="field"><label>Gym-Tage</label>
+          <div class="row" style="flex-wrap:wrap">${[1,2,3,4,5,6,0].map(n=>`<button class="chip ${days.includes(n)?"on":""}" data-act="ob-gym" data-day="${n}">${WD_SHORT[n]}</button>`).join("")}</div></div>
+        <button class="chip ${d.halal?"on":""}" data-act="ob-halal">Halal · ${d.halal?"an":"aus"}</button>
+        <div class="row" style="margin-top:14px"><button class="btn ghost" style="flex:1" data-act="onb-back">Zurück</button>
+          <button class="btn" style="flex:1" data-act="onb-next">Weiter</button></div>
+      </div>`;
+  }
+  if (step === 3){
+    const c = computePlan(d);
+    const goalLab = (GOAL_OPTS.find(x=>x[0]===d.goal)||[])[1] || d.goal;
+    body = `<h1>Dein Plan.</h1>
+      <div class="sub">Mifflin-St Jeor × Aktivität, dann höchstens ~400 kcal Defizit. Boden ${c.kcalFloor} kcal. Protein ${d.sex==="f"?"1,7":"1,8"} g/kg.</div>
+      <div class="card">
+        <div class="stat" style="margin-bottom:10px"><div class="k">Ziel</div><div class="v" style="font-size:18px">${esc(goalLab)}</div></div>
+        <div class="row" style="margin-bottom:10px">
+          <div class="stat"><div class="k">kcal / Tag</div><div class="v">${c.kcal}</div></div>
+          <div class="stat"><div class="k">Protein</div><div class="v">${c.protein} <span>g</span></div></div>
+        </div>
+        <div style="font-size:13px;color:var(--muted);line-height:1.55">
+          Grundumsatz ~${c.bmr} · Verbrauch ~${c.tdee} kcal.<br>
+          Zielzone ${c.goalLow}–${c.goalHigh} kg.<br>
+          Gesundes Tempo ${fmtN(c.lossMinKg)}–${fmtN(c.lossMaxKg)} kg/Woche.
+          Haltung bleibt im Plan${d.goal==="fat"?" (optional, nicht Pflicht für den Tag)":""}.
+        </div>
+        <div class="row" style="margin-top:14px"><button class="btn ghost" style="flex:1" data-act="onb-back">Zurück</button>
+          <button class="btn" style="flex:1" data-act="onb-next">PIN setzen</button></div>
+      </div>`;
+  }
+  if (step === 4){
+    body = `<h1>PIN.</h1>
+      <div class="sub">4–8 Ziffern, nur auf diesem Gerät, gehasht gespeichert. Ohne PIN sieht niemand Mahlzeiten, Gewicht oder Gym.</div>
+      <div class="card">
+        <div class="field"><label>PIN</label><input id="ob-pin" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password"></div>
+        <div class="field"><label>PIN wiederholen</label><input id="ob-pin2" type="password" inputmode="numeric" maxlength="8" autocomplete="new-password"></div>
+        ${!S.profile.onboarded?`<button class="btn ghost" data-act="onb-back">Zurück</button>`:""}
+        <button class="btn big" style="margin-top:10px" data-act="onb-pin">Profil sperren &amp; starten</button>
+      </div>`;
+  }
   $("#app").innerHTML = `<div class="onb fadein">
     <div class="brand">AV·SHOT HEALTH</div>
-    <h1>Albin.</h1>
-    <div class="sub">Zwei Jobs: Fett runter, Haltung zurück. Halal, 2:1 Zug, 10 Minuten Nacken am Tag, 80 % über Monate — nicht 100 % über drei Wochen.</div>
-    <div class="card">
-      <div class="field"><label>Startgewicht, nüchtern (kg)</label>
-        <input id="ob-kg" type="text" inputmode="decimal" placeholder="z. B. 98,4"></div>
-      <div class="field"><label>Größe in cm (optional)</label>
-        <input id="ob-cm" type="text" inputmode="numeric" placeholder="z. B. 178"></div>
-      <div style="font-size:13px;color:var(--muted);line-height:1.55;margin-bottom:14px">
-        Zielzone <b style="color:var(--text)">87–89 kg</b> · Start ${S.profile.kcal} kcal · ${S.profile.protein} g Protein · Gym Mo, Di, Do, Fr, Sa · Mi Prep · So flexibel.
-      </div>
-      <button class="btn big" onclick="AV.finishOnboard()">Plan starten</button>
-    </div>
+    ${body}
   </div>`;
 }
 
 function render(){
   if (guide) return;
+  if (!S.profile.onboarded || !S.profile.pinHash){ renderOnboard(); return; }
+  if (!isUnlocked()){ renderLock(); return; }
+  document.body.classList.remove("onboard-on");
   const now = new Date(), dow = now.getDay(), gym = isGymDay(dow);
   const d = dayObj(todayKey());
   const sc = dayScore(todayKey());
-
-  if (!S.profile.onboarded){ renderOnboard(); return; }
-  document.body.classList.remove("onboard-on");
 
   let html = header(now, dow, gym, streakCount());
   if (tab==="heute") html += renderHeute(now, dow, gym, d, sc);
@@ -1253,7 +1580,7 @@ function render(){
   if (tab==="plan") html += renderPlan(dow);
 
   $("#app").innerHTML = `<div class="fadein">${html}</div>`;
-  $("#tabbar").innerHTML = TABS.map(t=>`<button class="${tab===t.id?"on":""}" onclick="AV.setTab('${t.id}')">${t.svg}${t.l}</button>`).join("");
+  $("#tabbar").innerHTML = TABS.map(t=>`<button class="${tab===t.id?"on":""}" data-act="tab" data-id="${t.id}">${t.svg}${t.l}</button>`).join("");
 }
 
 function waterCup(i){
@@ -1266,21 +1593,77 @@ function waterCup(i){
 
 function toggleMeal(id){ openMeal = openMeal===id ? null : id; render(); }
 
-window.AV = {
-  setTab, toggle, setWater, waterCup, swapMeal, toggleMeal, toggleRitual,
-  addWeight, delWeight, saveMirror, logPhoto, patchSet, toggleSet, stepKg, finishGym,
-  applyCut, startBreak, endBreak, startReverse, reverseStep, saveSettings,
-  toggleShop, togglePrep, finishOnboard, exportData, importData, installApp, hideInstall,
-  startGuide, pauseGuide, skipGuide, stopGuide
-};
+function handleClick(e){
+  const el = e.target.closest("[data-act]");
+  if (!el) return;
+  const a = el.getAttribute("data-act");
+  const d = el.dataset;
+  const map = {
+    tab: () => setTab(d.id),
+    toggle: () => toggle(d.id),
+    "water-cup": () => waterCup(+d.i),
+    "water-add": () => setWater((dayObj(todayKey()).water||0) + (+d.ml)),
+    "water-reset": () => setWater(0),
+    meal: () => toggleMeal(d.id),
+    swap: () => swapMeal(d.slot, d.rid),
+    guide: () => startGuide(d.mode),
+    "guide-stop": () => stopGuide(),
+    "guide-pause": () => pauseGuide(),
+    "guide-skip": () => skipGuide(),
+    install: () => installApp(),
+    "hide-install": () => hideInstall(),
+    photo: () => logPhoto(),
+    "weight-add": () => addWeight(),
+    "weight-del": () => { if (isDateKey(d.date)) delWeight(d.date); },
+    mirror: () => saveMirror(),
+    "gym-finish": () => finishGym(),
+    "set-ok": () => toggleSet(d.ex, +d.i),
+    "step-kg": () => stepKg(d.ex, +d.i, +d.dir),
+    cut: () => applyCut(),
+    "break-start": () => startBreak(),
+    "break-end": () => endBreak(),
+    reverse: () => startReverse(),
+    "reverse-step": () => reverseStep(),
+    settings: () => saveSettings(),
+    export: () => exportData(),
+    shop: () => toggleShop(+d.i),
+    prep: () => togglePrep(+d.i),
+    onboard: () => onbNext(),
+    "onb-next": () => onbNext(),
+    "onb-back": () => onbBack(),
+    "onb-sex": () => onbSex(d.sex),
+    "onb-goal": () => onbGoal(d.goal),
+    "onb-gym": () => onbGymDay(d.day),
+    "onb-halal": () => onbHalal(),
+    "onb-pin": () => onbSetPin(),
+    unlock: () => unlockPin()
+  };
+  if (map[a]) map[a]();
+}
+
+function handleInput(e){
+  const el = e.target;
+  if (!el || el.dataset.act !== "patch-set") return;
+  patchSet(el.dataset.ex, +el.dataset.i, el.dataset.field, el.value);
+}
+
+function handleChange(e){
+  const el = e.target;
+  if (el && el.dataset.act === "import" && el.files && el.files[0]) importData(el.files[0]);
+}
+
+document.addEventListener("click", handleClick);
+document.addEventListener("input", handleInput);
+document.addEventListener("change", handleChange);
+document.addEventListener("keydown", e=>{
+  if (e.key !== "Enter") return;
+  if (e.target && e.target.id === "win") addWeight();
+  if (e.target && e.target.id === "lock-pin") unlockPin();
+  if (e.target && (e.target.id === "ob-pin2" || e.target.id === "ob-pin")) onbSetPin();
+});
 
 if ("serviceWorker" in navigator){
   navigator.serviceWorker.register("./sw.js", { scope: "./" }).catch(()=>{});
 }
 
-document.addEventListener("keydown", e=>{
-  if (e.key==="Enter" && e.target && e.target.id==="win") addWeight();
-  if (e.key==="Enter" && e.target && e.target.id==="ob-kg") finishOnboard();
-});
-
-render();
+hydrateFromDisk().then(() => { render(); }).catch(() => { render(); });

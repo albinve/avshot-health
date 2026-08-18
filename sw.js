@@ -1,4 +1,4 @@
-const CACHE = "avshot-health-v4";
+const CACHE = "avshot-health-v6";
 const FILES = [
   "./",
   "./index.html",
@@ -10,7 +10,8 @@ const FILES = [
   "./icon.svg",
   "./icon-180.png",
   "./icon-192.png",
-  "./icon-512.png"
+  "./icon-512.png",
+  "./robots.txt"
 ];
 
 self.addEventListener("install", e => {
@@ -25,11 +26,20 @@ self.addEventListener("activate", e => {
   );
 });
 
+function isAppAsset(url){
+  if (url.origin !== self.location.origin) return false;
+  const p = url.pathname;
+  if (/\.(html|css|js|json|webmanifest|png|svg|ico)$/i.test(p)) return true;
+  if (p.endsWith("/") || /\/avshot-health\/?$/.test(p)) return true;
+  return false;
+}
+
 self.addEventListener("fetch", e => {
   const req = e.request;
   if (req.method !== "GET") return;
-  const url = new URL(req.url);
-  if (url.origin !== location.origin) return;
+  let url;
+  try { url = new URL(req.url); } catch(err){ return; }
+  if (!isAppAsset(url)) return;
 
   const isPage =
     req.mode === "navigate" ||
@@ -37,30 +47,24 @@ self.addEventListener("fetch", e => {
     url.pathname.endsWith("/") ||
     url.pathname.endsWith("/index.html");
 
+  const put = res => {
+    if (res && res.ok && res.type === "basic") {
+      const copy = res.clone();
+      caches.open(CACHE).then(c => c.put(req, copy)).catch(()=>{});
+    }
+    return res;
+  };
+
   if (isPage) {
     e.respondWith(
-      fetch(req)
-        .then(res => {
-          const copy = res.clone();
-          caches.open(CACHE).then(c => c.put(req, copy));
-          return res;
-        })
-        .catch(() => caches.match(req).then(r => r || caches.match("./index.html")))
+      fetch(req).then(put).catch(() => caches.match(req).then(r => r || caches.match("./index.html")))
     );
     return;
   }
 
   e.respondWith(
     caches.match(req).then(cached => {
-      const fetched = fetch(req)
-        .then(res => {
-          if (res && res.ok) {
-            const copy = res.clone();
-            caches.open(CACHE).then(c => c.put(req, copy));
-          }
-          return res;
-        })
-        .catch(() => cached);
+      const fetched = fetch(req).then(put).catch(() => cached);
       return cached || fetched;
     })
   );
