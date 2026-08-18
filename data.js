@@ -36,7 +36,15 @@ const DEFAULTS = {
   sound: true,
   haptic: true,
   onboarded: false,
-  reminders: null
+  reminders: null,
+  aiOn: false,
+  aiKey: "",
+  aiProxy: "",
+  aiLastAt: null,
+  aiCoach: "",
+  aiNotes: "",
+  aiForbidden: [],
+  aiGymNote: ""
 };
 
 function defaultReminders(){
@@ -314,6 +322,10 @@ function profileAvoids(p){
     const t = foldUm(x).trim();
     if (t.length >= 2) dislikes.push(t);
   });
+  (p && p.aiForbidden || []).forEach(x => {
+    const t = foldUm(x).trim();
+    if (t.length >= 2) dislikes.push(t);
+  });
   return { allergies, dislikes };
 }
 
@@ -514,6 +526,7 @@ const PREP = {
 const EX = [
   {
     id: "brust", name: "Brust-Dehnung am Türrahmen",
+    setup: "Unterarm am Türrahmen, Ellbogen auf Schulterhöhe. Oberkörper dreht in die Dehnung.",
     cue: "Unterarm an den Rahmen, Ellbogen auf Schulterhöhe. Körper langsam vordrehen, bis du Zug in der Brust spürst — dort atmen und halten.",
     why: "Macht Platz für die Schulter, die du am Schreibtisch nach vorn gezogen hast.",
     breath: "Langsam ausatmen und 2 cm tiefer drehen. Nicht federn.",
@@ -521,6 +534,7 @@ const EX = [
   },
   {
     id: "huefte", name: "Hüftbeuger-Dehnung",
+    setup: "Ausfallschritt kniend. Becken schiebt nach vorn, Oberkörper bleibt hoch, Gesäß an.",
     cue: "Hinteres Knie am Boden. Gesäß fest anspannen und Becken nach vorn schieben — Oberkörper bleibt aufrecht. Deine wichtigste Übung.",
     why: "Enge Hüftbeuger kippen das Becken und ziehen den unteren Rücken ins Hohlkreuz.",
     breath: "Gesäß an, Rippen unten. Jeder Atemzug schiebt das Becken einen Hauch nach vorn.",
@@ -528,6 +542,7 @@ const EX = [
   },
   {
     id: "chin", name: "Chin Tucks",
+    setup: "Kopf schiebt waagerecht zurück — Doppelkinn. Nicht nicken.",
     cue: "Kinn waagerecht nach hinten schieben (Doppelkinn machen), 3 Sekunden halten, locker lösen. Ruhig im eigenen Tempo wiederholen.",
     why: "Dein Spiegeltest: Ohr über der Schulter. Das hier ist die Gegenbewegung zum Handy-Nacken.",
     breath: "3 Sekunden halten, lösen, wieder. Nicht nach oben schauen — gerade zurück.",
@@ -535,6 +550,7 @@ const EX = [
   },
   {
     id: "engel", name: "Wand-Engel",
+    setup: "Rücken an der Wand. Arme vom W ins Y, Rippen unten, Wandkontakt.",
     cue: "Rücken und Lendenwirbelsäule an die Wand. Arme im W langsam nach oben führen und zurück — Kontakt zur Wand halten.",
     why: "Obere Rückenmuskeln, die das Zusammensinken der Brust rückgängig machen.",
     breath: "Rippen an der Wand lassen. Wenn die Lendenwirbel abheben: kleinerer Weg.",
@@ -542,6 +558,7 @@ const EX = [
   },
   {
     id: "bridge", name: "Glute Bridge",
+    setup: "Rückenlage, Füße fest. Hüfte hoch, oben klemmen, langsam ab.",
     cue: "Becken hochdrücken, oben 2 Sekunden das Gesäß maximal anspannen, langsam absenken.",
     why: "Ein waches Gesäß hält das Becken — ohne das übernehmen Hüftbeuger und unterer Rücken.",
     breath: "Oben 2 Sekunden fest, dann kontrolliert ab. Nicht ins Hohlkreuz ausweichen.",

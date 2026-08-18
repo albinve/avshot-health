@@ -8,7 +8,7 @@ html,body{margin:0; background:var(--bg); color:var(--text);
   font-family:"Avenir Next","Segoe UI",system-ui,sans-serif; overscroll-behavior-y:contain}
 body{padding-bottom:calc(var(--tab-h) + env(safe-area-inset-bottom)); min-height:100dvh}
 button,input,select{font-family:inherit}
-button{cursor:pointer}
+button{cursor:pointer; touch-action:manipulation}
 .wrap{max-width:480px; margin:0 auto; padding:20px 16px 28px}
 .brand{letter-spacing:.22em; font-size:11px; color:var(--gold); font-weight:600}
 h1{font-size:26px; font-weight:700; margin:2px 0 2px; letter-spacing:-.01em}
@@ -65,10 +65,11 @@ h1{font-size:26px; font-weight:700; margin:2px 0 2px; letter-spacing:-.01em}
 .tabs button.on{color:var(--gold); font-weight:700; border-top-color:var(--gold)}
 .tabs svg{width:20px; height:20px; stroke:currentColor; fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round}
 
-input[type=text], input[type=number], select{
+input[type=text], input[type=number], input[type=url], input[type=password], select, textarea{
   background:var(--surface2); border:1px solid var(--line); border-radius:10px;
   padding:12px 14px; color:var(--text); font-size:16px; outline:none; width:100%}
-input:focus, select:focus{border-color:var(--gold-dim)}
+input:focus, select:focus, textarea:focus{border-color:var(--gold-dim)}
+textarea{min-height:96px; font-size:14px; line-height:1.45; resize:vertical}
 .btn{background:var(--gold); color:var(--bg); border:none; border-radius:10px;
   padding:12px 20px; font-weight:700; font-size:15px; touch-action:manipulation}
 .btn.ghost{background:none; border:1px solid var(--line); color:var(--text); font-weight:600}
@@ -78,9 +79,15 @@ input:focus, select:focus{border-color:var(--gold-dim)}
 
 .exfig{width:112px; height:112px; flex-shrink:0}
 .exfig svg,.gex svg{width:100%; height:100%}
-.exfig .fg,.gex .fg{stroke:var(--gold); stroke-width:4.5; stroke-linecap:round; stroke-linejoin:round; fill:none}
-.exfig .env,.gex .env{stroke:var(--muted); stroke-width:3; stroke-linecap:round; fill:none; opacity:.5}
-.exfig .hd,.gex .hd{stroke:var(--gold); stroke-width:4; fill:none}
+.exfig .fg,.gex .fg{stroke:var(--gold); stroke-width:5.2; stroke-linecap:round; stroke-linejoin:round; fill:none}
+.exfig .env,.gex .env{stroke:var(--muted); stroke-width:2.6; stroke-linecap:round; fill:none; opacity:.55}
+.exfig .wall,.gex .wall{stroke:var(--muted); stroke-width:3.4; fill:none; opacity:.7; stroke-linecap:square}
+.exfig .mat,.gex .mat{fill:var(--surface2); stroke:var(--line); stroke-width:1.5; opacity:.9}
+.exfig .jnt,.gex .jnt{fill:var(--gold); stroke:none}
+.exfig .hd,.gex .hd{stroke:var(--gold); stroke-width:4.4; fill:none}
+.gex .fg{stroke-width:5.8}
+.gex .hd{stroke-width:5}
+.figcap{font-size:12.5px; color:var(--muted); text-align:center; margin:2px 0 0; line-height:1.4; max-width:300px}
 .excard{display:flex; gap:14px; align-items:center}
 .excard .en{font-size:15px; font-weight:600}
 .excard .ed{font-size:12.5px; color:var(--muted); line-height:1.45; margin-top:3px}
@@ -88,7 +95,7 @@ input:focus, select:focus{border-color:var(--gold-dim)}
 
 .guide{position:fixed; inset:0; background:var(--bg); z-index:100; display:flex; flex-direction:column;
   align-items:center; padding:20px 20px calc(20px + env(safe-area-inset-bottom))}
-.guide .gex{width:180px; height:180px; margin:4px 0}
+.guide .gex{width:228px; height:228px; margin:2px 0}
 .ring{position:relative; width:150px; height:150px; margin:6px 0}
 .ring svg{transform:rotate(-90deg)}
 .ring .num{position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
@@ -121,9 +128,12 @@ input:focus, select:focus{border-color:var(--gold-dim)}
 .recipe ul{margin:6px 0; padding-left:16px}
 .recipe li{margin:2px 0}
 .swaps{display:flex; gap:8px; flex-wrap:wrap; padding:0 0 4px 38px}
-.chip{background:none; border:1px solid var(--line); color:var(--muted); border-radius:999px;
-  padding:6px 10px; font-size:12px}
+.chiprow{display:flex; flex-wrap:wrap; gap:8px; align-items:center}
+button.chip, .chip{background:none; border:1px solid var(--line); color:var(--muted); border-radius:999px;
+  padding:8px 12px; font-size:13px; touch-action:manipulation; -webkit-user-select:none; user-select:none;
+  flex-shrink:0; min-height:40px; position:relative; z-index:1}
 .chip.on{border-color:var(--gold); color:var(--gold)}
+.daychip{min-width:44px; min-height:44px; font-weight:600; font-size:13px}
 
 .setrow{display:flex; align-items:center; gap:8px; margin-top:8px}
 .setrow .n{width:22px; font-size:12px; color:var(--muted)}
@@ -157,10 +167,16 @@ input[type=checkbox]{accent-color:var(--gold);width:18px;height:18px;flex-shrink
 .toast{position:fixed; left:50%; bottom:calc(var(--tab-h) + env(safe-area-inset-bottom) + 12px);
   transform:translateX(-50%) translateY(12px); background:var(--surface2); border:1px solid var(--gold-dim);
   color:var(--text); padding:10px 16px; border-radius:10px; font-size:13px; opacity:0; pointer-events:none;
-  transition:opacity .25s, transform .25s; z-index:80; white-space:nowrap}
+  transition:opacity .25s, transform .25s; z-index:80; white-space:normal; max-width:min(440px,92vw);
+  text-align:center; line-height:1.4}
 .toast.show{opacity:1; transform:translateX(-50%) translateY(0)}
+.code{font-family:ui-monospace,Consolas,monospace; font-size:10px; line-height:1.45; white-space:pre-wrap;
+  background:var(--surface2); border:1px solid var(--line); border-radius:8px; padding:10px; color:var(--muted)}
+.warnbox{font-size:13px; line-height:1.5; color:var(--text); background:var(--surface2);
+  border:1px solid var(--gold-dim); border-radius:10px; padding:10px 12px; margin:0 0 12px}
 
-.onb{min-height:100dvh; display:flex; flex-direction:column; justify-content:center; padding:28px 20px}
+.onb{min-height:100dvh; display:flex; flex-direction:column; justify-content:flex-start;
+  padding:18px 8px 40px; overflow-y:auto; -webkit-overflow-scrolling:touch}
 .onb h1{font-size:28px; margin:8px 0 8px}
 .mirror-btns{display:flex; gap:8px; margin-top:8px}
 .mirror-btns button{flex:1}
@@ -174,5 +190,5 @@ input[type=checkbox]{accent-color:var(--gold);width:18px;height:18px;flex-shrink
 }
 body.guide-on .tabs{display:none}
 body.guide-on{padding-bottom:0}
-body.onboard-on .tabs{display:none}
+body.onboard-on .tabs{display:none !important; pointer-events:none}
 body.onboard-on{padding-bottom:0}

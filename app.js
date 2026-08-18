@@ -89,7 +89,24 @@ function cleanProfile(raw){
   const sb = Number(p.scaleBmr);
   p.scaleBmr = Number.isFinite(sb) && sb >= 800 && sb <= 3500 ? sb : null;
   if (!Array.isArray(p.gymDays)) p.gymDays = (DEFAULTS.gymDays || []).slice();
-  else p.gymDays = p.gymDays.filter(n => n >= 0 && n <= 6).slice();
+  else {
+    const days = [];
+    p.gymDays.forEach(n => {
+      const d = Number(n);
+      if (d >= 0 && d <= 6 && days.indexOf(d) < 0) days.push(d);
+    });
+    p.gymDays = days.length ? days.sort((a, b) => a - b) : (DEFAULTS.gymDays || []).slice();
+  }
+  p.aiOn = !!p.aiOn;
+  p.aiKey = String(p.aiKey || "").slice(0, 256);
+  p.aiProxy = String(p.aiProxy || "").trim().slice(0, 400);
+  p.aiLastAt = Number(p.aiLastAt) || null;
+  p.aiCoach = String(p.aiCoach || "").slice(0, 400);
+  p.aiNotes = String(p.aiNotes || "").slice(0, 500);
+  p.aiGymNote = String(p.aiGymNote || "").slice(0, 400);
+  p.aiForbidden = Array.isArray(p.aiForbidden)
+    ? p.aiForbidden.map(String).map(s => s.trim()).filter(Boolean).slice(0, 24)
+    : [];
   const r0 = defaultReminders();
   const r = p.reminders && typeof p.reminders === "object" ? p.reminders : {};
   p.reminders = {
@@ -232,49 +249,93 @@ function dayObj(k){
 
 /* ───────── figures ───────── */
 function fig(id, big){
-  const D = 3.4;
-  const A = (name,vals,dur)=>`<animate attributeName="${name}" values="${vals}" dur="${dur||D}s" repeatCount="indefinite" calcMode="spline" keySplines=".4 0 .6 1;.4 0 .6 1"/>`;
+  const D = big ? 4.8 : 4.2;
+  const A = (name, vals, kt) => {
+    const n = String(vals).split(";").length;
+    const spl = Array(Math.max(1, n - 1)).fill(".42 0 .2 1").join(";");
+    return `<animate attributeName="${name}" values="${vals}" dur="${D}s" repeatCount="indefinite" calcMode="spline"${kt ? ` keyTimes="${kt}"` : ""} keySplines="${spl}"/>`;
+  };
+  const KT = "0;0.24;0.58;1";
+  const CHIN_KT = "0;0.18;0.68;1";
   const svgs = {
-  brust: `<svg viewBox="0 0 120 120">
-    <line class="env" x1="96" y1="8" x2="96" y2="112"/><line class="env" x1="96" y1="8" x2="78" y2="8"/>
-    <polyline class="fg" points="48,78 52,38">${A("points","48,78 52,38;51,78 61,35;48,78 52,38")}</polyline>
-    <polyline class="fg" points="48,78 58,95 60,112">${A("points","48,78 58,95 60,112;51,78 62,95 63,112;48,78 58,95 60,112")}</polyline>
-    <polyline class="fg" points="48,78 38,96 34,112">${A("points","48,78 38,96 34,112;51,78 40,96 36,112;48,78 38,96 34,112")}</polyline>
-    <polyline class="fg" points="52,38 73,42 92,30">${A("points","52,38 73,42 92,30;61,35 78,40 92,30;52,38 73,42 92,30")}</polyline>
-    <polyline class="fg" points="52,38 46,62">${A("points","52,38 46,62;61,35 55,60;52,38 46,62")}</polyline>
-    <circle class="hd" r="8" cx="49" cy="25">${A("cx","49;58;49")}${A("cy","25;23;25")}</circle>
+  brust: `<svg viewBox="0 0 160 160" aria-hidden="true">
+    <line class="env" x1="8" y1="148" x2="152" y2="148"/>
+    <rect class="wall" x="126" y="10" width="20" height="138"/>
+    <line class="wall" x1="126" y1="10" x2="126" y2="148"/>
+    <line class="wall" x1="146" y1="10" x2="146" y2="148"/>
+    <line class="wall" x1="126" y1="10" x2="146" y2="10"/>
+    <polyline class="fg" points="50,148 54,118 62,98">${A("points","50,148 54,118 62,98;46,148 50,118 52,98;46,148 50,118 50,98;50,148 54,118 62,98", KT)}</polyline>
+    <polyline class="fg" points="70,148 72,118 62,98">${A("points","70,148 72,118 62,98;64,148 66,118 52,98;64,148 66,118 50,98;70,148 72,118 62,98", KT)}</polyline>
+    <polyline class="fg" points="54,98 70,98">${A("points","54,98 70,98;44,98 60,98;42,98 58,98;54,98 70,98", KT)}</polyline>
+    <polyline class="fg" points="62,98 74,54">${A("points","62,98 74,54;52,98 62,52;50,98 60,52;62,98 74,54", KT)}</polyline>
+    <polyline class="fg" points="74,54 74,42">${A("points","74,54 74,42;62,52 60,40;60,52 58,40;74,54 74,42", KT)}</polyline>
+    <polyline class="fg" points="80,56 108,58 126,38">${A("points","80,56 108,58 126,38;70,54 104,56 126,38;68,54 102,55 126,38;80,56 108,58 126,38", KT)}</polyline>
+    <polyline class="fg" points="68,56 52,80 44,104">${A("points","68,56 52,80 44,104;54,54 38,78 30,100;52,54 36,76 28,98;68,56 52,80 44,104", KT)}</polyline>
+    <circle class="jnt" r="3" cx="80" cy="56">${A("cx","80;70;68;80", KT)}${A("cy","56;54;54;56", KT)}</circle>
+    <circle class="jnt" r="3" cx="108" cy="58">${A("cx","108;104;102;108", KT)}${A("cy","58;56;55;58", KT)}</circle>
+    <circle class="jnt" r="3" cx="62" cy="98">${A("cx","62;52;50;62", KT)}</circle>
+    <circle class="hd" r="10" cx="76" cy="32">${A("cx","76;60;58;76", KT)}${A("cy","32;30;30;32", KT)}</circle>
   </svg>`,
-  huefte: `<svg viewBox="0 0 120 120">
-    <line class="env" x1="8" y1="111" x2="112" y2="111"/>
-    <polyline class="fg" points="20,109 40,107"></polyline>
-    <polyline class="fg" points="40,107 52,74">${A("points","40,107 52,74;40,107 61,74;40,107 52,74")}</polyline>
-    <polyline class="fg" points="52,74 73,88 79,109">${A("points","52,74 73,88 79,109;61,74 79,84 79,109;52,74 73,88 79,109")}</polyline>
-    <polyline class="fg" points="52,74 51,38">${A("points","52,74 51,38;61,74 60,38;52,74 51,38")}</polyline>
-    <polyline class="fg" points="51,38 60,60 70,74">${A("points","51,38 60,60 70,74;60,38 68,58 77,70;51,38 60,60 70,74")}</polyline>
-    <circle class="hd" r="8" cx="50" cy="26">${A("cx","50;59;50")}</circle>
+  huefte: `<svg viewBox="0 0 160 160" aria-hidden="true">
+    <line class="env" x1="8" y1="148" x2="152" y2="148"/>
+    <rect class="mat" x="18" y="140" width="48" height="10" rx="2"/>
+    <polyline class="fg" points="22,146 40,146 52,92">${A("points","22,146 40,146 52,92;22,146 40,146 70,90;22,146 40,146 72,90;22,146 40,146 52,92", KT)}</polyline>
+    <polyline class="fg" points="52,92 98,102 104,148">${A("points","52,92 98,102 104,148;70,90 108,100 110,148;72,90 110,100 110,148;52,92 98,102 104,148", KT)}</polyline>
+    <polyline class="fg" points="44,92 68,92">${A("points","44,92 68,92;62,90 86,90;64,90 88,90;44,92 68,92", KT)}</polyline>
+    <polyline class="fg" points="52,92 54,48">${A("points","52,92 54,48;70,90 68,46;72,90 70,46;52,92 54,48", KT)}</polyline>
+    <polyline class="fg" points="54,48 55,38">${A("points","54,48 55,38;68,46 68,36;70,46 70,36;54,48 55,38", KT)}</polyline>
+    <polyline class="fg" points="58,52 78,78 96,100">${A("points","58,52 78,78 96,100;72,50 92,76 108,98;74,50 94,76 110,98;58,52 78,78 96,100", KT)}</polyline>
+    <polyline class="fg" points="50,52 36,78 28,104">${A("points","50,52 36,78 28,104;66,50 50,76 40,100;68,50 52,76 42,100;50,52 36,78 28,104", KT)}</polyline>
+    <circle class="jnt" r="3.2" cx="52" cy="92">${A("cx","52;70;72;52", KT)}${A("cy","92;90;90;92", KT)}</circle>
+    <circle class="jnt" r="3" cx="40" cy="146"/>
+    <circle class="jnt" r="3" cx="98" cy="102">${A("cx","98;108;110;98", KT)}${A("cy","102;100;100;102", KT)}</circle>
+    <circle class="jnt" r="3" cx="54" cy="48">${A("cx","54;68;70;54", KT)}${A("cy","48;46;46;48", KT)}</circle>
+    <circle class="hd" r="10" cx="56" cy="28">${A("cx","56;70;72;56", KT)}${A("cy","28;26;26;28", KT)}</circle>
   </svg>`,
-  chin: `<svg viewBox="0 0 120 120">
-    <line class="env" x1="24" y1="86" x2="86" y2="86"/>
-    <polyline class="fg" points="30,110 34,86 76,86 82,110"/>
-    <polyline class="fg" points="55,86 60,56">${A("points","55,86 60,56;55,86 51,54;55,86 60,56")}</polyline>
-    <circle class="hd" r="13" cx="63" cy="42">${A("cx","63;51;63")}${A("cy","42;40;42")}</circle>
+  chin: `<svg viewBox="0 0 160 160" aria-hidden="true">
+    <line class="env" x1="10" y1="148" x2="150" y2="148"/>
+    <line class="env" x1="72" y1="18" x2="72" y2="108" stroke-dasharray="3 5"/>
+    <rect class="wall" x="36" y="48" width="6" height="62"/>
+    <polyline class="env" points="36,110 108,110 108,148"/>
+    <polyline class="env" points="42,110 42,148"/>
+    <polyline class="fg" points="108,148 112,110 70,108">${A("points","108,148 112,110 70,108;108,148 112,110 70,108;108,148 112,110 70,108;108,148 112,110 70,108", CHIN_KT)}</polyline>
+    <polyline class="fg" points="62,108 78,108">${A("points","62,108 78,108;62,108 78,108;62,108 78,108;62,108 78,108", CHIN_KT)}</polyline>
+    <polyline class="fg" points="70,108 78,58">${A("points","70,108 78,58;70,108 72,56;70,108 72,56;70,108 78,58", CHIN_KT)}</polyline>
+    <polyline class="fg" points="78,58 90,46">${A("points","78,58 90,46;72,56 72,44;72,56 72,44;78,58 90,46", CHIN_KT)}</polyline>
+    <polyline class="fg" points="78,58 96,84 110,108">${A("points","78,58 96,84 110,108;72,56 92,84 110,108;72,56 92,84 110,108;78,58 96,84 110,108", CHIN_KT)}</polyline>
+    <circle class="jnt" r="3" cx="70" cy="108"/>
+    <circle class="jnt" r="3" cx="78" cy="58">${A("cx","78;72;72;78", CHIN_KT)}${A("cy","58;56;56;58", CHIN_KT)}</circle>
+    <circle class="hd" r="12" cx="96" cy="34">${A("cx","96;72;72;96", CHIN_KT)}${A("cy","34;32;32;34", CHIN_KT)}</circle>
   </svg>`,
-  engel: `<svg viewBox="0 0 120 120">
-    <line class="env" x1="14" y1="10" x2="14" y2="112"/>
-    <line class="fg" x1="60" y1="52" x2="60" y2="86"/>
-    <polyline class="fg" points="60,86 50,112"/><polyline class="fg" points="60,86 70,112"/>
-    <polyline class="fg" points="47,54 73,54"/>
-    <polyline class="fg" points="47,54 37,68 30,50">${A("points","47,54 37,68 30,50;47,54 39,38 32,20;47,54 37,68 30,50")}</polyline>
-    <polyline class="fg" points="73,54 83,68 90,50">${A("points","73,54 83,68 90,50;73,54 81,38 88,20;73,54 83,68 90,50")}</polyline>
-    <circle class="hd" r="9" cx="60" cy="36"/>
+  engel: `<svg viewBox="0 0 160 160" aria-hidden="true">
+    <rect class="wall" x="22" y="8" width="116" height="140"/>
+    <line class="env" x1="8" y1="148" x2="152" y2="148"/>
+    <line class="env" x1="22" y1="136" x2="138" y2="136"/>
+    <polyline class="fg" points="80,92 80,50"/>
+    <polyline class="fg" points="66,92 94,92"/>
+    <polyline class="fg" points="72,92 66,148"/>
+    <polyline class="fg" points="88,92 94,148"/>
+    <polyline class="fg" points="80,50 80,40"/>
+    <polyline class="fg" points="62,52 44,82 32,58">${A("points","62,52 44,82 32,58;62,52 46,36 30,16;62,52 46,36 30,16;62,52 44,82 32,58", KT)}</polyline>
+    <polyline class="fg" points="98,52 116,82 128,58">${A("points","98,52 116,82 128,58;98,52 114,36 130,16;98,52 114,36 130,16;98,52 116,82 128,58", KT)}</polyline>
+    <circle class="jnt" r="3" cx="62" cy="52"/>
+    <circle class="jnt" r="3" cx="98" cy="52"/>
+    <circle class="jnt" r="3" cx="80" cy="92"/>
+    <circle class="jnt" r="2.6" cx="44" cy="82">${A("cx","44;46;46;44", KT)}${A("cy","82;36;36;82", KT)}</circle>
+    <circle class="jnt" r="2.6" cx="116" cy="82">${A("cx","116;114;114;116", KT)}${A("cy","82;36;36;82", KT)}</circle>
+    <circle class="hd" r="11" cx="80" cy="28"/>
   </svg>`,
-  bridge: `<svg viewBox="0 0 120 120">
-    <line class="env" x1="6" y1="102" x2="114" y2="102"/>
-    <circle class="hd" r="8" cx="20" cy="93"/>
-    <polyline class="fg" points="32,97 58,93">${A("points","32,97 58,93;32,97 56,72;32,97 58,93")}</polyline>
-    <polyline class="fg" points="58,93 77,70">${A("points","58,93 77,70;56,72 77,64;58,93 77,70")}</polyline>
-    <polyline class="fg" points="77,70 84,100">${A("points","77,70 84,100;77,64 84,100;77,70 84,100")}</polyline>
-    <polyline class="fg" points="36,99 58,99"/>
+  bridge: `<svg viewBox="0 0 160 160" aria-hidden="true">
+    <line class="env" x1="6" y1="142" x2="154" y2="142"/>
+    <rect class="mat" x="12" y="132" width="136" height="12" rx="3"/>
+    <polyline class="fg" points="46,136 88,138">${A("points","46,136 88,138;48,132 86,132;48,132 86,132;46,136 88,138", KT)}</polyline>
+    <polyline class="fg" points="38,132 46,132 88,134">${A("points","38,132 46,132 88,134;40,128 50,126 86,90;40,128 50,126 86,88;38,132 46,132 88,134", KT)}</polyline>
+    <polyline class="fg" points="88,134 118,100 128,142">${A("points","88,134 118,100 128,142;86,90 118,96 128,142;86,88 118,94 128,142;88,134 118,100 128,142", KT)}</polyline>
+    <polyline class="fg" points="90,134 122,102 134,142">${A("points","90,134 122,102 134,142;88,92 122,98 134,142;88,90 122,96 134,142;90,134 122,102 134,142", KT)}</polyline>
+    <circle class="jnt" r="3" cx="46" cy="132">${A("cx","46;50;50;46", KT)}${A("cy","132;126;126;132", KT)}</circle>
+    <circle class="jnt" r="3.2" cx="88" cy="134">${A("cx","88;86;86;88", KT)}${A("cy","134;90;88;134", KT)}</circle>
+    <circle class="jnt" r="3" cx="118" cy="100">${A("cx","118;118;118;118", KT)}${A("cy","100;96;94;100", KT)}</circle>
+    <circle class="hd" r="10" cx="26" cy="128">${A("cy","128;124;124;128", KT)}</circle>
   </svg>`};
   return `<div class="${big?"gex":"exfig"}">${svgs[id]||""}</div>`;
 }
@@ -300,17 +361,24 @@ async function requestWake(){
 function releaseWake(){ try{ wakeLock && wakeLock.release(); }catch(e){} wakeLock=null; }
 
 let toastT=null;
-function toast(msg){
+function toast(msg, ms){
   const el=$("#toast"); if (!el) return;
   el.textContent=msg; el.classList.add("show");
-  clearTimeout(toastT); toastT=setTimeout(()=>el.classList.remove("show"), 2200);
+  clearTimeout(toastT); toastT=setTimeout(()=>el.classList.remove("show"), ms || 2200);
 }
 
 /* ───────── domain ───────── */
+function gymDaysOf(p){
+  const raw = p && Array.isArray(p.gymDays) && p.gymDays.length ? p.gymDays : GYM_DAYS;
+  const out = [];
+  raw.forEach(n => {
+    const d = Number(n);
+    if (d >= 0 && d <= 6 && out.indexOf(d) < 0) out.push(d);
+  });
+  return out.length ? out : GYM_DAYS.slice();
+}
 function isGymDay(dow){
-  const days = (S.profile && Array.isArray(S.profile.gymDays) && S.profile.gymDays.length)
-    ? S.profile.gymDays : GYM_DAYS;
-  return days.includes(dow);
+  return gymDaysOf(S.profile).indexOf(Number(dow)) >= 0;
 }
 function wantsPosture(){
   const g = S.profile.goal || "both";
@@ -343,17 +411,18 @@ function syncPlanMeta(){
   const c = computePlan(liveProfile());
   S.profile.bmr = c.bmr;
   S.profile.tdee = c.tdee;
-  S.profile.protein = c.protein;
   S.profile.kcalFloor = c.kcalFloor;
   S.profile.kcalMaintain = c.kcalMaintain;
   S.profile.kcalDeficit = c.kcalDeficit;
   S.profile.goalLow = c.goalLow;
   S.profile.goalHigh = c.goalHigh;
+  if (!S.profile.aiOn) S.profile.protein = c.protein;
   return c;
 }
 function syncPlanTargets(){
   const c = syncPlanMeta();
   if (S.profile.phase === "break") S.profile.kcal = c.kcalMaintain;
+  else if (S.profile.aiOn && S.profile.aiLastAt) { /* kcal/protein from last AI plan */ }
   else if (S.profile.phase !== "reverse") {
     S.profile.kcal = c.kcal;
     S.profile.phase = c.phase;
@@ -373,14 +442,14 @@ function kcalCard(){
     ? "BMR Waage " + c.bmr + " (Mifflin " + c.mifflin + ")"
     : "Grundumsatz ~" + c.bmr + " kcal (Mifflin-St Jeor)";
   return `<div class="card" style="border-color:var(--gold-dim)">
-    <div class="k" style="font-size:11px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">Kalorien · lokal berechnet</div>
+    <div class="k" style="font-size:11px;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px">${S.profile.aiOn && S.profile.aiLastAt ? "Kalorien · AI-Plan (Gerät)" : "Kalorien · lokal berechnet"}</div>
     <div style="font-size:16px;font-weight:700;margin-bottom:4px">Verbrauch ~${c.tdee} kcal</div>
     <div style="font-size:15px;font-weight:600;color:var(--gold);margin-bottom:8px">${esc(ziel)}</div>
     <div class="sub" style="margin:0">
       ${esc(bmrLine)} · ${c.gymN} Gym-Tage (Faktor ${fmtN(c.activity)}).
       Boden ${c.kcalFloor} kcal — kein Crash.
       ${c.lbm ? `Protein über Magermasse ~${fmtN(c.lbm)} kg (Waagenwert, keine DEXA). ` : ""}
-      Regeln auf diesem Gerät, keine Cloud-KI.
+      ${S.profile.aiOn && S.profile.aiLastAt ? "AI-Werte, lokal gemischt — Boden bleibt." : "Regeln auf diesem Gerät. AI unter Plan ist optional und aus."}
     </div>
   </div>`;
 }
@@ -511,6 +580,7 @@ function coachLine(now, dow, gym, d, macros, sc){
   if (dow===0 && photoDue()) return "Foto-Woche. Drei Posen, gleiches Licht, gleicher Abstand wie am Tag 1.";
   if (dow===0 && hour<12) return "Sonntag. Nüchtern auf die Waage, dann Spiegel: liegt das Ohr über der Schulter?";
   if (hour>=20 && !d.checks.haltung) return "Noch 10 Minuten für den Nacken. Die Routine zählt mehr als ein heroischer Satz Bankdrücken.";
+  if (S.profile.aiOn && S.profile.aiCoach) return S.profile.aiCoach;
   const diet = personalPlan(liveProfile());
   if (diet.hints.length && hour<11 && !d.checks.fruehstueck) return diet.hints[0];
   if (macros.prot < 120 && hour>=15 && hour<21) return "Protein ist der Hebel. Snack jetzt, dann sitzt das Abendessen entspannter.";
@@ -732,8 +802,14 @@ function savedLine(){
 
 function chipRow(opts, selected, act, key){
   return opts.map(([id, lab]) =>
-    `<button class="chip ${selected.indexOf(id)>=0?"on":""}" data-act="${act}" data-${key}="${esc(id)}">${esc(lab)}</button>`
+    `<button type="button" class="chip ${selected.indexOf(id)>=0?"on":""}" data-act="${act}" data-${key}="${esc(id)}">${esc(lab)}</button>`
   ).join("");
+}
+function dayChips(selected, act){
+  const days = (selected || []).map(Number);
+  return `<div class="chiprow">` + [1,2,3,4,5,6,0].map(n =>
+    `<button type="button" class="chip daychip ${days.indexOf(n)>=0?"on":""}" data-act="${act}" data-day="${n}">${WD_SHORT[n]}</button>`
+  ).join("") + `</div>`;
 }
 
 /* ───────── app state ───────── */
@@ -744,6 +820,8 @@ let guide = null;
 let onbStep = 0;
 let draft = null;
 let showComp = false;
+let aiBusy = false;
+let aiShowPaste = false;
 const UNLOCK_KEY = "avshot-unlocked";
 
 function isStandalone(){
@@ -1021,6 +1099,10 @@ function saveSettings(){
   if (Number.isFinite(age) && age>=14 && age<=80) S.profile.age = age;
   if ($("#set-dislike-note")) S.profile.dislikeNote = $("#set-dislike-note").value.slice(0,240);
   if ($("#set-scale-bmr")) S.profile.useScaleBmr = $("#set-scale-bmr").checked;
+  const proxyEl = $("#set-ai-proxy");
+  if (proxyEl) S.profile.aiProxy = String(proxyEl.value || "").trim().slice(0, 400);
+  const keyEl = $("#set-ai-key");
+  if (keyEl && String(keyEl.value || "").trim()) S.profile.aiKey = String(keyEl.value).trim().slice(0, 256);
   syncPlanTargets();
   if (kcal>=S.profile.kcalFloor && kcal<=4000) S.profile.kcal = kcal;
   if (prot>=80 && prot<=250) S.profile.protein = prot;
@@ -1028,6 +1110,221 @@ function saveSettings(){
   S.profile.sound = $("#set-sound").checked;
   S.profile.haptic = $("#set-haptic").checked;
   save(); toast("Einstellungen gespeichert"); render();
+}
+
+function toggleSex(sx, onboard){
+  if (onboard) captureOnboardFields();
+  const target = onboard ? ensureDraft() : S.profile;
+  target.sex = sx === "f" ? "f" : "m";
+  if (!onboard){ syncPlanTargets(); save(); }
+  render();
+}
+function toggleGoal(g, onboard){
+  if (onboard) captureOnboardFields();
+  const target = onboard ? ensureDraft() : S.profile;
+  target.goal = g;
+  if (!onboard){ syncPlanTargets(); save(); }
+  render();
+}
+function toggleHalal(onboard){
+  if (onboard) captureOnboardFields();
+  const target = onboard ? ensureDraft() : S.profile;
+  target.halal = !target.halal;
+  if (!onboard){ syncPlanTargets(); save(); }
+  render();
+}
+function toggleGymDay(day, onboard){
+  if (onboard) captureOnboardFields();
+  const target = onboard ? ensureDraft() : S.profile;
+  const n = Number(day);
+  if (n < 0 || n > 6) return;
+  const cur = gymDaysOf(target);
+  const next = cur.indexOf(n) >= 0 ? cur.filter(x => x !== n) : cur.concat(n).sort((a,b)=>a-b);
+  if (!next.length){ toast("Mindestens ein Gym-Tag"); return; }
+  target.gymDays = next;
+  if (!onboard){ syncPlanTargets(); save(); }
+  render();
+}
+
+function aiPick(obj, keys){
+  for (let i = 0; i < keys.length; i++){
+    const v = obj[keys[i]];
+    if (v != null && v !== "") return v;
+  }
+  return null;
+}
+function extractJsonObject(text){
+  const s = String(text || "").trim();
+  const fence = s.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const raw = fence ? fence[1] : s;
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start < 0 || end <= start) throw new Error("json");
+  const parsed = JSON.parse(raw.slice(start, end + 1));
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("shape");
+  return parsed;
+}
+function planFromAiPayload(data){
+  if (!data || typeof data !== "object") throw new Error("shape");
+  if (typeof data.kcal === "number" || typeof data.protein === "number" || data.coachLine) return data;
+  const content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+  if (typeof content === "string") return extractJsonObject(content);
+  if (typeof data.output_text === "string") return extractJsonObject(data.output_text);
+  throw new Error("shape");
+}
+function applyAiPlan(raw){
+  const obj = typeof raw === "string" ? extractJsonObject(raw) : planFromAiPayload(raw);
+  const p = liveProfile();
+  const sex = p.sex === "f" ? "f" : "m";
+  const floor = sex === "f" ? 1500 : 1900;
+  let kcal = Number(aiPick(obj, ["kcal", "calories", "kalorien"]));
+  let protein = Number(aiPick(obj, ["protein", "proteinG", "eiweiss"]));
+  if (Number.isFinite(kcal)) {
+    kcal = Math.round(kcal / 10) * 10;
+    kcal = Math.max(floor, Math.min(4000, kcal));
+    S.profile.kcal = kcal;
+    if (S.profile.phase !== "break" && S.profile.phase !== "reverse") S.profile.kcalDeficit = kcal;
+  }
+  if (Number.isFinite(protein)) S.profile.protein = Math.max(80, Math.min(220, Math.round(protein / 5) * 5));
+  const notes = aiPick(obj, ["mealsNotes", "meals notes", "notes", "mealNotes"]);
+  if (notes) S.profile.aiNotes = String(notes).slice(0, 500);
+  const coach = aiPick(obj, ["coachLine", "coach", "line"]);
+  if (coach) S.profile.aiCoach = String(coach).slice(0, 400);
+  const gymT = aiPick(obj, ["gymTweaks", "weekly gym session tweaks", "gym", "sessionTweaks"]);
+  if (gymT) S.profile.aiGymNote = String(gymT).slice(0, 400);
+  const forbid = aiPick(obj, ["forbiddenFoods", "forbidden", "allowed/forbidden foods"]);
+  if (Array.isArray(forbid)) S.profile.aiForbidden = forbid.map(String).map(s => s.trim()).filter(Boolean).slice(0, 24);
+  else if (typeof forbid === "string" && forbid.trim()) {
+    S.profile.aiForbidden = forbid.split(/[,;\n]/).map(s => s.trim()).filter(Boolean).slice(0, 24);
+  }
+  const goal = p.goal || "both";
+  if (goal === "both" || goal === "posture") {
+    /* Haltung bleibt am Nutzerziel — Modell darf sie nicht streichen */
+  }
+  S.profile.aiOn = true;
+  S.profile.aiLastAt = Date.now();
+  S.profile.kcalFloor = floor;
+  save();
+  toast("AI-Plan übernommen — Boden " + floor + " kcal bleibt");
+  render();
+}
+function aiUserPrompt(){
+  const p = liveProfile();
+  const c = personalPlan(p);
+  const floor = p.sex === "f" ? 1500 : 1900;
+  const days = gymDaysOf(p).map(n => WD_SHORT[n]).join(", ");
+  const goal = (GOAL_OPTS.find(x => x[0] === p.goal) || [])[1] || p.goal;
+  return [
+    "Antworte NUR mit einem JSON-Objekt, kein Markdown, kein Text davor oder danach.",
+    "Schema: {\"kcal\":number,\"protein\":number,\"mealsNotes\":string,\"allowedFoods\":string[],\"forbiddenFoods\":string[],\"gymTweaks\":string,\"coachLine\":string}",
+    "Alle Strings auf Deutsch. Kein Crash-Diet. kcal nie unter " + floor + ".",
+    "Protein 80–220 g. Haltung (10-Min-Routine, Zug:Druck ~2:1) NICHT streichen, wenn das Ziel Haltung enthält.",
+    "Gym-Tage nicht ändern. Nur Session-Hinweise in gymTweaks.",
+    "",
+    "Profil:",
+    "Geschlecht: " + (p.sex === "f" ? "Frau" : "Mann"),
+    "Alter: " + (p.age || "unbekannt"),
+    "Größe cm: " + (p.heightCm || "unbekannt"),
+    "Gewicht kg: " + (p.currentKg || p.startKg || "unbekannt"),
+    "Körperfett %: " + (p.fatPct != null ? p.fatPct : "keine Angabe"),
+    "Ziel: " + goal,
+    "Gym-Tage: " + days,
+    "Allergien: " + ((p.allergies || []).join(", ") || "keine"),
+    "Unlieblinge: " + ((p.dislikes || []).concat(p.dislikeNote ? [p.dislikeNote] : []).join(", ") || "keine"),
+    "Halal: " + (p.halal === false ? "nein" : "ja"),
+    "Aktuell kcal/Protein (lokal): " + c.kcal + " / " + c.protein,
+    "TDEE lokal: " + c.tdee + " · Boden: " + floor
+  ].join("\n");
+}
+async function copyAiPrompt(){
+  const text = aiUserPrompt();
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(text);
+    else {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+    }
+    aiShowPaste = true;
+    toast("Prompt kopiert — in ChatGPT einfügen, JSON zurück");
+    render();
+  } catch (e) {
+    aiShowPaste = true;
+    toast("Kopieren blockiert — Text steht unten");
+    render();
+  }
+}
+function pasteAiJson(){
+  const el = $("#ai-json");
+  if (!el){ toast("Kein JSON-Feld"); return; }
+  try {
+    applyAiPlan(el.value);
+  } catch (e) {
+    toast("JSON ungültig — nur das Objekt einfügen", 4000);
+  }
+}
+async function runAiPlan(){
+  if (aiBusy) return;
+  const keyEl = $("#set-ai-key");
+  if (keyEl && String(keyEl.value || "").trim()) S.profile.aiKey = String(keyEl.value).trim().slice(0, 256);
+  const proxyEl = $("#set-ai-proxy");
+  if (proxyEl) S.profile.aiProxy = String(proxyEl.value || "").trim().slice(0, 400);
+  const key = String(S.profile.aiKey || "").trim();
+  const proxy = String(S.profile.aiProxy || "").trim();
+  if (!key && !proxy){
+    aiShowPaste = true;
+    toast("Kein Schlüssel — Prompt kopieren und JSON einfügen", 4500);
+    render();
+    return;
+  }
+  const messages = [
+    { role: "system", content: "You return STRICT JSON only. No markdown. Conservative fitness coach. Never below the stated kcal floor. Never drop posture work if the goal includes Haltung." },
+    { role: "user", content: aiUserPrompt() }
+  ];
+  aiBusy = true;
+  render();
+  try {
+    const model = "gpt-4o-mini";
+    let url, headers, body;
+    if (proxy){
+      url = proxy;
+      headers = { "Content-Type": "application/json" };
+      if (key) headers.Authorization = "Bearer " + key;
+      body = JSON.stringify({ messages, model });
+    } else {
+      url = "https://api.openai.com/v1/chat/completions";
+      headers = { "Content-Type": "application/json", Authorization: "Bearer " + key };
+      body = JSON.stringify({ model, messages, temperature: 0.2, response_format: { type: "json_object" } });
+    }
+    const res = await fetch(url, { method: "POST", mode: "cors", headers, body });
+    if (res.status === 401) throw Object.assign(new Error("auth"), { code: 401 });
+    if (!res.ok) throw Object.assign(new Error("http"), { code: res.status });
+    const data = await res.json();
+    aiBusy = false;
+    applyAiPlan(planFromAiPayload(data));
+  } catch (err) {
+    aiBusy = false;
+    aiShowPaste = true;
+    if (err && err.code === 401) toast("OpenAI: Schlüssel ungültig (401). Schlüssel bleibt nur auf dem Gerät.", 5000);
+    else if (err && err.name === "TypeError") toast("Browser blockiert OpenAI (CORS). Proxy-URL oder Prompt kopieren.", 5500);
+    else toast("AI nicht erreichbar. Prompt kopieren und JSON einfügen.", 5000);
+    render();
+  }
+}
+function toggleAiOn(){
+  S.profile.aiOn = !S.profile.aiOn;
+  if (!S.profile.aiOn) syncPlanTargets();
+  save();
+  render();
+}
+function clearAiKey(){
+  S.profile.aiKey = "";
+  save();
+  toast("Schlüssel gelöscht");
+  render();
 }
 
 function toggleAllergy(id, onboard){
@@ -1081,7 +1378,9 @@ function togglePrep(i){
 function finishOnboard(){ onbNext(); }
 
 function exportData(){
-  const blob = new Blob([JSON.stringify(S,null,2)], {type:"application/json"});
+  const copy = cloneJson(S) || {};
+  if (copy.profile) copy.profile.aiKey = "";
+  const blob = new Blob([JSON.stringify(copy,null,2)], {type:"application/json"});
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
   a.download = "avshot-health-"+todayKey()+".json";
@@ -1287,6 +1586,7 @@ function renderGuide(rebuild){
     <div style="font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--gold)">${esc(sub)}</div>
     <div style="font-size:21px;font-weight:700;text-align:center;margin:4px 0 2px">${esc(title)}</div>
     <div class="gex">${step.type==="work" || step.type==="ready" ? fig(e.id,true).replace('class="gex"','') : ""}</div>
+    ${e && e.setup && (step.type==="work" || step.type==="ready") ? `<div class="figcap">${esc(e.setup)}</div>` : ""}
     <div class="ring">
       <svg width="150" height="150"><circle cx="75" cy="75" r="65" stroke="var(--line)" stroke-width="7" fill="none"/>
       <circle id="gring" cx="75" cy="75" r="65" stroke="var(--gold)" stroke-width="7" fill="none"
@@ -1419,7 +1719,7 @@ function renderHeute(now, dow, gym, d, sc){
       if (opts.length){
         html += `<div class="swaps">`;
         opts.forEach(([rid,lab])=>{
-          html += `<button class="chip ${m.rid===rid?"on":""}" data-act="swap" data-slot="${m.id}" data-rid="${rid}">${esc(lab)}</button>`;
+          html += `<button type="button" class="chip ${m.rid===rid?"on":""}" data-act="swap" data-slot="${m.id}" data-rid="${rid}">${esc(lab)}</button>`;
         });
         html += `</div>`;
       }
@@ -1482,7 +1782,8 @@ function renderGym(now, dow, gym, d){
       <div class="${okRatio?"green":"gold"}">${ratio.pull} : ${ratio.push}</div></div>
     <div class="bar" title="Ziel 2:1"><i class="pull" style="width:${Math.max(8, 100*ratio.pull/Math.max(1,ratio.pull+ratio.push))}%"></i>
       <i class="push" style="width:${Math.max(8, 100*ratio.push/Math.max(1,ratio.pull+ratio.push))}%"></i></div>
-    <div class="sub" style="margin:8px 0 0">Ziel ~2:1. Face Pulls und Rudern sind keine Beilage — sie sind der Plan.</div>
+    <div class="sub" style="margin:8px 0 0">Ziel ~2:1. Face Pulls und Rudern sind keine Beilage — sie sind der Plan.
+      ${S.profile.aiOn && S.profile.aiGymNote ? `<br>${esc(S.profile.aiGymNote)}` : ""}</div>
   </div>`;
 
   html += `<div class="sect">Woche</div>`;
@@ -1752,13 +2053,72 @@ function renderPlan(dow){
   if (plan.hints.length){
     html += `<div class="coach">${esc(plan.hints.join(" "))}</div>`;
   }
+  if (S.profile.aiOn && (S.profile.aiCoach || S.profile.aiNotes)){
+    html += `<div class="coach">${esc(S.profile.aiCoach || S.profile.aiNotes)}</div>`;
+  }
+
+  html += `<div class="sect">Profil</div><div class="card">
+    <div class="sub" style="margin:0 0 10px">Geschlecht, Ziel und Gym-Tage steuern TDEE und den Kalender. Tippen zum Umschalten.</div>
+    <div class="field"><label>Geschlecht</label>
+      <div class="chiprow">
+        <button type="button" class="chip ${S.profile.sex!=="f"?"on":""}" data-act="sex" data-sex="m">Mann</button>
+        <button type="button" class="chip ${S.profile.sex==="f"?"on":""}" data-act="sex" data-sex="f">Frau</button>
+      </div></div>
+    <div class="field"><label>Ziel</label>
+      <div class="chiprow">${GOAL_OPTS.map(([id,l])=>`<button type="button" class="chip ${S.profile.goal===id?"on":""}" data-act="goal" data-goal="${id}">${esc(l)}</button>`).join("")}</div></div>
+    <div class="field"><label>Gym-Tage</label>${dayChips(S.profile.gymDays, "gym-day")}</div>
+    <button type="button" class="chip ${S.profile.halal!==false?"on":""}" data-act="halal">Halal · ${S.profile.halal!==false?"an":"aus"}</button>
+  </div>`;
+
+  const aiLast = S.profile.aiLastAt ? new Date(S.profile.aiLastAt).toLocaleString("de-DE", { day:"numeric", month:"short", hour:"2-digit", minute:"2-digit" }) : "";
+  html += `<div class="sect">Optional · OpenAI</div><div class="card">
+    <div class="warnbox">Wenn du „Plan mit AI neu berechnen“ nutzt, geht dein Profil an OpenAI: Geschlecht, Alter, Größe, Gewicht, Körperfett falls vorhanden, Ziel, Gym-Tage, Allergien, Unlieblinge, Halal, kcal und Protein. Der API-Schlüssel bleibt auf diesem Handy — nie im Git, nie in der URL. Du kannst das auslassen. Lokal rechnen ist der Default.</div>
+    <label class="listrow"><span>AI-Plan statt lokaler Formeln</span>
+      <input id="set-ai-on" type="checkbox" ${S.profile.aiOn?"checked":""} data-act="ai-toggle"></label>
+    <div class="field"><label>OpenAI API-Schlüssel</label>
+      <input id="set-ai-key" type="password" autocomplete="off" spellcheck="false" data-act="ai-key" placeholder="${S.profile.aiKey?"Gespeichert auf diesem Gerät":"sk-… nur dieses Gerät"}"></div>
+    ${S.profile.aiKey?`<button type="button" class="btn ghost sm" data-act="ai-key-clear">Schlüssel löschen</button>`:""}
+    <div class="field" style="margin-top:10px"><label>Optional: eigener Proxy (CORS)</label>
+      <input id="set-ai-proxy" type="url" inputmode="url" autocomplete="off" value="${esc(S.profile.aiProxy||"")}" data-act="ai-proxy" placeholder="https://… leer = direkter Aufruf"></div>
+    <div class="sub" style="margin:0 0 10px">GitHub Pages darf api.openai.com oft nicht (CORS). Dann Proxy-URL, oder Prompt kopieren und die JSON-Antwort einfügen.</div>
+    <button type="button" class="btn big" data-act="ai-run" ${aiBusy?"disabled":""}>${aiBusy?"Rechne …":"Plan mit AI neu berechnen"}</button>
+    <div class="row" style="margin-top:8px;flex-wrap:wrap">
+      <button type="button" class="btn ghost sm" style="flex:1" data-act="ai-copy">Prompt kopieren</button>
+      <button type="button" class="btn ghost sm" style="flex:1" data-act="ai-paste">JSON einfügen</button>
+    </div>
+    <div class="field" style="margin-top:10px"><label>Antwort einfügen</label>
+      <textarea id="ai-json" rows="6" placeholder='{"kcal":2150,"protein":175,"mealsNotes":"…","forbiddenFoods":[],"gymTweaks":"…","coachLine":"…"}'></textarea></div>
+    ${aiLast?`<div class="sub" style="margin:8px 0 0">Letzter AI-Plan: ${esc(aiLast)}</div>`:""}
+    ${S.profile.aiNotes?`<div class="sub" style="margin:8px 0 0">${esc(S.profile.aiNotes)}</div>`:""}
+    <details style="margin-top:12px"><summary class="muted" style="font-size:12px;cursor:pointer">Mini-Proxy (Cloudflare Worker, optional)</summary>
+      <pre class="code">export default {
+  async fetch(req) {
+    const h = {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers": "Content-Type, Authorization"
+    };
+    if (req.method === "OPTIONS") return new Response(null, { headers: h });
+    const { messages, model } = await req.json();
+    const r = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: req.headers.get("Authorization")
+      },
+      body: JSON.stringify({ model, messages, temperature: 0.2, response_format: { type: "json_object" } })
+    });
+    return new Response(await r.text(), { status: r.status, headers: { ...h, "Content-Type": "application/json" } });
+  }
+}</pre>
+    </details>
+  </div>`;
 
   html += `<div class="sect">Allergien &amp; Unlieblinge</div><div class="card">
     <div class="sub" style="margin:0 0 10px">Mahlzeiten und Einkaufsliste passen sich an. Alles bleibt auf diesem Gerät.</div>
     <div class="field"><label>Allergien</label>
       <div class="swaps" style="padding:0">${chipRow(ALLERGY_OPTS, S.profile.allergies||[], "allergy", "id")}</div></div>
     <div class="field"><label>Mag ich nicht</label>
-      <div class="swaps" style="padding:0">${DISLIKE_CHIPS.map(n=>`<button class="chip ${(S.profile.dislikes||[]).indexOf(n)>=0?"on":""}" data-act="dislike" data-name="${esc(n)}">${esc(n)}</button>`).join("")}</div></div>
+      <div class="swaps" style="padding:0">${DISLIKE_CHIPS.map(n=>`<button type="button" class="chip ${(S.profile.dislikes||[]).indexOf(n)>=0?"on":""}" data-act="dislike" data-name="${esc(n)}">${esc(n)}</button>`).join("")}</div></div>
     <div class="field"><label>Weitere Unlieblinge (Freitext)</label>
       <input id="set-dislike-note" type="text" value="${esc(S.profile.dislikeNote||"")}" placeholder="z. B. Oliven, scharf" data-act="diet-note"></div>
   </div>`;
@@ -1855,7 +2215,7 @@ function ensureDraft(){
     name: (S.profile && S.profile.name) || "Albin",
     sex: (S.profile && S.profile.sex) || "m",
     goal: (S.profile && S.profile.goal) || "both",
-    gymDays: (S.profile && S.profile.gymDays && S.profile.gymDays.slice()) || [1,2,4,5,6],
+    gymDays: gymDaysOf(S.profile),
     allergies: (S.profile && S.profile.allergies && S.profile.allergies.slice()) || [],
     dislikes: (S.profile && S.profile.dislikes && S.profile.dislikes.slice()) || [],
     dislikeNote: (S.profile && S.profile.dislikeNote) || "",
@@ -1868,34 +2228,25 @@ function ensureDraft(){
 
 function captureOnboardFields(){
   const d = ensureDraft();
-  const val = id => { const el = document.getElementById(id); return el ? el.value : ""; };
-  if (onbStep === 0){
-    const n = val("ob-name").trim();
-    if (n) d.name = n.slice(0,40);
-    const sex = document.querySelector("[data-sex].on");
-    if (sex) d.sex = sex.getAttribute("data-sex");
-  }
-  if (onbStep === 1){
-    const age = parseDec(val("ob-age"));
-    const cm = parseDec(val("ob-cm"));
-    const kg = parseDec(val("ob-kg"));
-    const tgt = parseDec(val("ob-tgt"));
-    if (Number.isFinite(age) && age>=14 && age<=80) d.age = age;
-    if (Number.isFinite(cm) && cm>=140 && cm<=220) d.heightCm = cm;
-    if (Number.isFinite(kg) && kg>=40 && kg<=250) d.startKg = kg;
-    if (Number.isFinite(tgt) && tgt>=40 && tgt<=250) d.targetKg = tgt;
-  }
-  if (onbStep === 2){
-    const note = val("ob-dislike-note");
-    d.dislikeNote = String(note || "").slice(0, 240);
-  }
-  if (onbStep === 4){
+  const el = id => document.getElementById(id);
+  const val = id => { const n = el(id); return n ? n.value : null; };
+  const n = val("ob-name");
+  if (n != null && n.trim()) d.name = n.trim().slice(0,40);
+  const age = parseDec(val("ob-age"));
+  const cm = parseDec(val("ob-cm"));
+  const kg = parseDec(val("ob-kg"));
+  const tgt = parseDec(val("ob-tgt"));
+  if (el("ob-age") && Number.isFinite(age) && age>=14 && age<=80) d.age = age;
+  if (el("ob-cm") && Number.isFinite(cm) && cm>=140 && cm<=220) d.heightCm = cm;
+  if (el("ob-kg") && Number.isFinite(kg) && kg>=40 && kg<=250) d.startKg = kg;
+  if (el("ob-tgt") && Number.isFinite(tgt) && tgt>=40 && tgt<=250) d.targetKg = tgt;
+  if (el("ob-dislike-note")) d.dislikeNote = String(val("ob-dislike-note") || "").slice(0, 240);
+  if (el("ob-fat") || el("ob-bmr")){
     d.comp = readCompFields("ob");
-    const cb = document.getElementById("ob-scale-bmr");
-    if (cb) d.useScaleBmr = !!cb.checked;
     if (d.comp && d.comp.fatPct != null) d.fatPct = d.comp.fatPct;
     if (d.comp && d.comp.scaleBmr != null) d.scaleBmr = d.comp.scaleBmr;
   }
+  if (el("ob-scale-bmr")) d.useScaleBmr = !!el("ob-scale-bmr").checked;
 }
 
 function onbBack(){
@@ -1929,16 +2280,10 @@ function onbNext(){
   }
 }
 
-function onbGoal(g){ ensureDraft().goal = g; render(); }
-function onbSex(sx){ ensureDraft().sex = sx; render(); }
-function onbHalal(){ const d=ensureDraft(); d.halal = !d.halal; render(); }
-function onbGymDay(day){
-  const d = ensureDraft();
-  d.gymDays = d.gymDays || [];
-  const n = +day;
-  d.gymDays = d.gymDays.includes(n) ? d.gymDays.filter(x=>x!==n) : d.gymDays.concat(n).sort();
-  render();
-}
+function onbGoal(g){ toggleGoal(g, true); }
+function onbSex(sx){ toggleSex(sx, true); }
+function onbHalal(){ toggleHalal(true); }
+function onbGymDay(day){ toggleGymDay(day, true); }
 
 async function onbSetPin(){
   captureOnboardFields();
@@ -2014,15 +2359,15 @@ function renderOnboard(){
   let body = "";
   if (step === 0){
     body = `<h1>Profil.</h1>
-      <div class="sub">Nur auf diesem Handy. Kein Account, keine Cloud-KI. Daten bleiben hier.</div>
+      <div class="sub">Nur auf diesem Handy. Kein Account. Optional später unter Plan: eigener OpenAI-Schlüssel — aus bleibt der Default.</div>
       <div class="card">
         <div class="field"><label>Name</label><input id="ob-name" type="text" value="${esc(d.name||"Albin")}"></div>
         <div class="field"><label>Geschlecht — für Kalorien und Protein</label>
-          <div class="row">
-            <button class="chip ${d.sex!=="f"?"on":""}" data-act="ob-sex" data-sex="m">Mann</button>
-            <button class="chip ${d.sex==="f"?"on":""}" data-act="ob-sex" data-sex="f">Frau</button>
+          <div class="chiprow">
+            <button type="button" class="chip ${d.sex!=="f"?"on":""}" data-act="ob-sex" data-sex="m">Mann</button>
+            <button type="button" class="chip ${d.sex==="f"?"on":""}" data-act="ob-sex" data-sex="f">Frau</button>
           </div></div>
-        <button class="btn big" data-act="onb-next">Weiter</button>
+        <button type="button" class="btn big" data-act="onb-next">Weiter</button>
       </div>`;
   }
   if (step === 1){
@@ -2048,7 +2393,7 @@ function renderOnboard(){
         <div class="field"><label>Allergien</label>
           <div class="swaps" style="padding:0">${chipRow(ALLERGY_OPTS, d.allergies||[], "ob-allergy", "id")}</div></div>
         <div class="field"><label>Mag ich nicht</label>
-          <div class="swaps" style="padding:0">${DISLIKE_CHIPS.map(n=>`<button class="chip ${(d.dislikes||[]).indexOf(n)>=0?"on":""}" data-act="ob-dislike" data-name="${esc(n)}">${esc(n)}</button>`).join("")}</div></div>
+          <div class="swaps" style="padding:0">${DISLIKE_CHIPS.map(n=>`<button type="button" class="chip ${(d.dislikes||[]).indexOf(n)>=0?"on":""}" data-act="ob-dislike" data-name="${esc(n)}">${esc(n)}</button>`).join("")}</div></div>
         <div class="field"><label>Weitere Unlieblinge</label>
           <input id="ob-dislike-note" type="text" value="${esc(d.dislikeNote||"")}" placeholder="optional"></div>
         <div class="row" style="margin-top:8px"><button class="btn ghost" style="flex:1" data-act="onb-back">Zurück</button>
@@ -2056,17 +2401,15 @@ function renderOnboard(){
       </div>`;
   }
   if (step === 3){
-    const days = d.gymDays || [];
     body = `<h1>Ziel.</h1>
-      <div class="sub">Fettabbau plus Haltung ist der Standard. Kein Crash, kein Detox, kein 1200-kcal-Unsinn.</div>
+      <div class="sub">Fettabbau plus Haltung ist der Standard. Kein Crash, kein Detox, kein 1200-kcal-Unsinn. Tippe die Tage an — Gold heißt Gym.</div>
       <div class="card">
         <div class="field"><label>Was willst du?</label>
-          <div class="swaps" style="padding:0">${GOAL_OPTS.map(([id,l])=>`<button class="chip ${d.goal===id?"on":""}" data-act="ob-goal" data-goal="${id}">${l}</button>`).join("")}</div></div>
-        <div class="field"><label>Gym-Tage</label>
-          <div class="row" style="flex-wrap:wrap">${[1,2,3,4,5,6,0].map(n=>`<button class="chip ${days.includes(n)?"on":""}" data-act="ob-gym" data-day="${n}">${WD_SHORT[n]}</button>`).join("")}</div></div>
-        <button class="chip ${d.halal?"on":""}" data-act="ob-halal">Halal · ${d.halal?"an":"aus"}</button>
-        <div class="row" style="margin-top:14px"><button class="btn ghost" style="flex:1" data-act="onb-back">Zurück</button>
-          <button class="btn" style="flex:1" data-act="onb-next">Weiter</button></div>
+          <div class="chiprow">${GOAL_OPTS.map(([id,l])=>`<button type="button" class="chip ${d.goal===id?"on":""}" data-act="ob-goal" data-goal="${id}">${esc(l)}</button>`).join("")}</div></div>
+        <div class="field"><label>Gym-Tage</label>${dayChips(d.gymDays, "ob-gym")}</div>
+        <button type="button" class="chip ${d.halal?"on":""}" data-act="ob-halal">Halal · ${d.halal?"an":"aus"}</button>
+        <div class="row" style="margin-top:14px"><button type="button" class="btn ghost" style="flex:1" data-act="onb-back">Zurück</button>
+          <button type="button" class="btn" style="flex:1" data-act="onb-next">Weiter</button></div>
       </div>`;
   }
   if (step === 4){
@@ -2092,7 +2435,7 @@ function renderOnboard(){
     const c = personalPlan(Object.assign({}, d, { currentKg: d.startKg }));
     const goalLab = (GOAL_OPTS.find(x=>x[0]===d.goal)||[])[1] || d.goal;
     body = `<h1>Dein Plan.</h1>
-      <div class="sub">${esc(c.engine)}. Defizit ${c.deficitWant} kcal, Boden ${c.kcalFloor}. Keine Cloud-KI — Formeln auf diesem Gerät.</div>
+      <div class="sub">${esc(c.engine)}. Defizit ${c.deficitWant} kcal, Boden ${c.kcalFloor}. Formeln auf diesem Gerät. Optional später unter Plan: eigener OpenAI-Schlüssel — aus lassen geht.</div>
       <div class="card">
         <div class="stat" style="margin-bottom:10px"><div class="k">Ziel</div><div class="v" style="font-size:18px">${esc(goalLab)}</div></div>
         <div class="row" style="margin-bottom:10px">
@@ -2158,6 +2501,8 @@ function toggleMeal(id){ openMeal = openMeal===id ? null : id; render(); }
 function handleClick(e){
   const el = e.target.closest("[data-act]");
   if (!el) return;
+  if (el.tagName === "INPUT" && (el.type === "file" || el.type === "checkbox" || el.type === "radio" || el.type === "text" || el.type === "password" || el.type === "number" || el.type === "url")) return;
+  if (el.tagName === "BUTTON") e.preventDefault();
   const a = el.getAttribute("data-act");
   const d = el.dataset;
   const map = {
@@ -2202,6 +2547,14 @@ function handleClick(e){
     "ob-dislike": () => toggleDislike(d.name, true),
     allergy: () => toggleAllergy(d.id, false),
     dislike: () => toggleDislike(d.name, false),
+    sex: () => toggleSex(d.sex, false),
+    goal: () => toggleGoal(d.goal, false),
+    "gym-day": () => toggleGymDay(d.day, false),
+    halal: () => toggleHalal(false),
+    "ai-run": () => runAiPlan(),
+    "ai-copy": () => copyAiPrompt(),
+    "ai-paste": () => pasteAiJson(),
+    "ai-key-clear": () => clearAiKey(),
     "toggle-comp": () => { showComp = !showComp; render(); },
     "remind-on": () => enableReminders(),
     "remind-off": () => disableReminders(),
@@ -2232,6 +2585,11 @@ function handleInput(e){
   else if (a === "diet-note") { S.profile.dislikeNote = String(el.value || "").slice(0, 240); save(); }
   else if (a === "settings-live") liveSettingsFrom(el);
   else if (a === "remind-save") saveReminderPrefs();
+  else if (a === "ai-key") {
+    const v = String(el.value || "").trim();
+    if (v) { S.profile.aiKey = v.slice(0, 256); save(); }
+  }
+  else if (a === "ai-proxy") { S.profile.aiProxy = String(el.value || "").trim().slice(0, 400); save(); }
 }
 
 function handleChange(e){
@@ -2243,6 +2601,12 @@ function handleChange(e){
   else if (a === "pref-haptic"){ S.profile.haptic = !!el.checked; save(); }
   else if (a === "scale-bmr"){ S.profile.useScaleBmr = !!el.checked; syncPlanTargets(); save(); render(); }
   else if (a === "remind-save") saveReminderPrefs();
+  else if (a === "ai-toggle"){
+    S.profile.aiOn = !!el.checked;
+    if (!S.profile.aiOn) syncPlanTargets();
+    save();
+    render();
+  }
 }
 
 document.addEventListener("click", handleClick);
