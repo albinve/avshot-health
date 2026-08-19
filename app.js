@@ -84,7 +84,8 @@
 
   let currentProfile = emptyProfile();
 
-  let uploadedBase64Photo = null;
+  let postureJpegBlob = null;
+  let posturePreviewUrl = null;
   let timerInterval = null;
   let timerSecondsLeft = 45 * 60;
   let isTimerRunning = false;
@@ -419,6 +420,10 @@
   }
 
   function switchTab(tabId) {
+    const postureTab = I("tab-posture");
+    const leavingPosture =
+      postureTab && !postureTab.classList.contains("hidden") && tabId !== "posture";
+    if (leavingPosture) clearPhoto();
     document.querySelectorAll(".tab-content").forEach((el) => el.classList.add("hidden"));
     document.querySelectorAll(".nav-btn").forEach((btn) => btn.classList.remove("on"));
     const section = I("tab-" + tabId);
@@ -473,43 +478,142 @@
     window.speechSynthesis.speak(utter);
   }
 
-  function handlePhotoUpload(file) {
-    if (!file || !file.type || file.type.indexOf("image/") !== 0) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement("canvas");
-        let width = img.width;
-        let height = img.height;
-        const maxDim = 1024;
-        if (width > height && width > maxDim) {
-          height = Math.round((height * maxDim) / width);
-          width = maxDim;
-        } else if (height > maxDim) {
-          width = Math.round((width * maxDim) / height);
-          height = maxDim;
-        }
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0, width, height);
-        uploadedBase64Photo = canvas.toDataURL("image/jpeg", 0.85);
-        I("photoPreview").src = uploadedBase64Photo;
-        I("photoPreviewContainer").classList.remove("hidden");
-        I("uploadPlaceholder").classList.add("hidden");
-      };
-      img.src = event.target.result;
-    };
-    reader.readAsDataURL(file);
+  function revokePreviewUrl() {
+    if (posturePreviewUrl) {
+      URL.revokeObjectURL(posturePreviewUrl);
+      posturePreviewUrl = null;
+    }
+  }
+
+  function wipeCanvas(canvas, ctx) {
+    if (!canvas) return;
+    try {
+      if (ctx && canvas.width && canvas.height) {
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        imageData.data.fill(0);
+        ctx.putImageData(imageData, 0, 0);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+    } catch (e) { /* ignore */ }
+    canvas.width = 0;
+    canvas.height = 0;
   }
 
   function clearPhoto() {
-    uploadedBase64Photo = null;
-    I("posturePhotoInput").value = "";
-    I("photoPreview").removeAttribute("src");
-    I("photoPreviewContainer").classList.add("hidden");
-    I("uploadPlaceholder").classList.remove("hidden");
+    postureJpegBlob = null;
+    revokePreviewUrl();
+    const img = I("photoPreview");
+    if (img) {
+      img.removeAttribute("src");
+      img.src = "";
+    }
+    const input = I("posturePhotoInput");
+    if (input) input.value = "";
+    const box = I("photoPreviewContainer");
+    const placeholder = I("uploadPlaceholder");
+    if (box) box.classList.add("hidden");
+    if (placeholder) placeholder.classList.remove("hidden");
+  }
+
+  function showPhotoPreview(blob) {
+    revokePreviewUrl();
+    postureJpegBlob = blob;
+    posturePreviewUrl = URL.createObjectURL(blob);
+    const img = I("photoPreview");
+    img.src = posturePreviewUrl;
+    I("photoPreviewContainer").classList.remove("hidden");
+    I("uploadPlaceholder").classList.add("hidden");
+  }
+
+  function fitMaxDim(width, height, maxDim) {
+    if (width > height && width > maxDim) {
+      height = Math.round((height * maxDim) / width);
+      width = maxDim;
+    } else if (height > maxDim) {
+      width = Math.round((width * maxDim) / height);
+      height = maxDim;
+    }
+    return { width: width, height: height };
+  }
+
+  function canvasToJpegBlob(canvas) {
+    return new Promise(function (resolve, reject) {
+      canvas.toBlob(function (blob) {
+        if (blob) resolve(blob);
+        else reject(new Error("jpeg"));
+      }, "image/jpeg", 0.85);
+    });
+  }
+
+  async function jpegBlobToBase64(blob) {
+    const buf = await blob.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    let binary = "";
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+    }
+    bytes.fill(0);
+    return btoa(binary);
+  }
+
+  function drawFileOnCanvas(file, canvas, ctx) {
+    return new Promise(function (resolve, reject) {
+      const tmpUrl = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = function () {
+        try {
+          const size = fitMaxDim(img.width, img.height, 1024);
+          canvas.width = size.width;
+          canvas.height = size.height;
+          ctx.drawImage(img, 0, 0, size.width, size.height);
+          img.onload = null;
+          img.onerror = null;
+          img.removeAttribute("src");
+          resolve();
+        } catch (err) {
+          reject(err);
+        } finally {
+          URL.revokeObjectURL(tmpUrl);
+        }
+      };
+      img.onerror = function () {
+        URL.revokeObjectURL(tmpUrl);
+        reject(new Error("img"));
+      };
+      img.src = tmpUrl;
+    });
+  }
+
+  async function handlePhotoUpload(file) {
+    if (!file || !file.type || file.type.indexOf("image/") !== 0) return;
+    const input = I("posturePhotoInput");
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    let bitmap = null;
+    try {
+      if (typeof createImageBitmap === "function") {
+        bitmap = await createImageBitmap(file);
+        if (input) input.value = "";
+        const size = fitMaxDim(bitmap.width, bitmap.height, 1024);
+        canvas.width = size.width;
+        canvas.height = size.height;
+        ctx.drawImage(bitmap, 0, 0, size.width, size.height);
+        if (bitmap.close) bitmap.close();
+        bitmap = null;
+      } else {
+        await drawFileOnCanvas(file, canvas, ctx);
+        if (input) input.value = "";
+      }
+      const blob = await canvasToJpegBlob(canvas);
+      wipeCanvas(canvas, ctx);
+      showPhotoPreview(blob);
+    } catch (e) {
+      wipeCanvas(canvas, ctx);
+      if (bitmap && bitmap.close) bitmap.close();
+      if (input) input.value = "";
+      toast("Foto konnte nicht gelesen werden.");
+    }
   }
 
   function genderLabel(g) {
@@ -719,11 +823,12 @@
     const textBox = I("postureAiText");
     resultBox.classList.remove("hidden");
 
+    const hasPhoto = !!postureJpegBlob;
     const promptText =
       "Du bist ein Coach für Haltung und Alltagsergonomie, kein Arzt. Keine Diagnose, keine Krankheitsnamen als Feststellung. Formuliere als mögliche Hinweise und Übungsvorschläge.\n" +
       buildProfileContext() +
       "Angegebene Muster: " + (symptoms.length ? symptoms.join(", ") : "keine Checkbox gewählt") + ".\n" +
-      (uploadedBase64Photo
+      (hasPhoto
         ? "Ein Seitenfoto liegt bei. Beschreibe nur, was plausibel sichtbar sein könnte (Kopfposition, Schultern, Lendenbereich). Unsicherheiten benennen.\n"
         : "") +
       "Antworte auf Deutsch, knapp und klar:\n" +
@@ -733,13 +838,20 @@
       "Schließe mit: Das ersetzt keine Untersuchung. Bei Schmerz, Taubheit oder Schwindel ärztlich / physiotherapeutisch abklären.";
 
     const parts = [{ text: promptText }];
-    if (uploadedBase64Photo) {
-      const base64Data = uploadedBase64Photo.split(",")[1];
-      if (base64Data) {
-        parts.push({ inline_data: { mime_type: "image/jpeg", data: base64Data } });
+    let base64Data = "";
+    try {
+      if (hasPhoto) {
+        base64Data = await jpegBlobToBase64(postureJpegBlob);
+        if (base64Data) {
+          parts.push({ inline_data: { mime_type: "image/jpeg", data: base64Data } });
+        }
       }
+      await geminiGenerate(parts, textBox, "Analysiere Haltung — Einschätzung, keine Diagnose …");
+    } finally {
+      base64Data = "";
+      parts.length = 0;
+      if (hasPhoto) clearPhoto();
     }
-    await geminiGenerate(parts, textBox, "Analysiere Haltung — Einschätzung, keine Diagnose …");
   }
 
   async function generateAiMealPlan() {
@@ -941,6 +1053,7 @@
     I("posturePhotoInput").addEventListener("change", (e) => handlePhotoUpload(e.target.files[0]));
     I("clearPhotoBtn").addEventListener("click", clearPhoto);
     I("runPostureBtn").addEventListener("click", runAiPostureAnalysis);
+    window.addEventListener("pagehide", clearPhoto);
     I("runMealBtn").addEventListener("click", generateAiMealPlan);
     I("startTimerBtn").addEventListener("click", toggleDeskTimer);
     I("resetTimerBtn").addEventListener("click", resetDeskTimer);
