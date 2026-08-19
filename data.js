@@ -104,7 +104,7 @@ const EXERCISES = [
   }
 ];
 
-const GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+const MODEL = "gemini-3.6-flash";
 const STORAGE_KEY_API = "health_gemini_api_key";
 const STORAGE_KEY_PROFILE = "health_user_profile";
 const STORAGE_IMPULSES = "health_day_impulses";

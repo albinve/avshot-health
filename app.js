@@ -3,6 +3,20 @@
 
   const I = (id) => document.getElementById(id);
 
+  const RANGE = {
+    age: [14, 90],
+    height: [120, 230],
+    weight: [35, 250],
+    bodyFatPct: [3, 60],
+    skeletalMuscleKg: [10, 80],
+    skeletalMusclePct: [15, 60],
+    muscleMassKg: [10, 90],
+    bodyWaterPct: [30, 80],
+    boneMassKg: [1, 6],
+    visceralFat: [1, 30],
+    scaleBmr: [800, 4000]
+  };
+
   function escapeHtml(str) {
     return String(str == null ? "" : str)
       .replace(/&/g, "&amp;")
@@ -18,6 +32,10 @@
     s = s.replace(/^[\t ]*[\*\-][\t ]+/gm, "• ");
     s = s.replace(/\n/g, "<br>");
     return s;
+  }
+
+  function fmtDe(n, digits) {
+    return Number(n).toFixed(digits).replace(".", ",");
   }
 
   function hasApiKey() {
@@ -45,26 +63,79 @@
     toast._t = setTimeout(() => el.classList.remove("show"), 2400);
   }
 
-  let currentProfile = {
-    name: "Benutzer",
-    age: 26,
-    gender: "male",
-    height: 180,
-    weight: 78
-  };
+  function emptyProfile() {
+    return {
+      name: "",
+      age: null,
+      gender: "",
+      height: null,
+      weight: null,
+      onboarded: false,
+      bodyFatPct: null,
+      skeletalMuscle: null,
+      skeletalMuscleUnit: "kg",
+      muscleMassKg: null,
+      bodyWaterPct: null,
+      boneMassKg: null,
+      visceralFat: null,
+      scaleBmr: null
+    };
+  }
+
+  let currentProfile = emptyProfile();
 
   let uploadedBase64Photo = null;
   let timerInterval = null;
   let timerSecondsLeft = 45 * 60;
   let isTimerRunning = false;
 
+  function looksLikeDemoProfile(p) {
+    if (!p) return false;
+    const name = String(p.name || "").trim().toLowerCase();
+    const h = Number(p.height);
+    const w = Number(p.weight);
+    if (name !== "benutzer") return false;
+    if (h !== 180) return false;
+    return w === 75 || w === 78;
+  }
+
+  function requiredFieldsOk(p) {
+    if (!p) return false;
+    const name = String(p.name || "").trim();
+    if (name.length < 1 || name.length > 60) return false;
+    if (p.age == null || p.age < RANGE.age[0] || p.age > RANGE.age[1]) return false;
+    if (p.gender !== "male" && p.gender !== "female" && p.gender !== "diverse") return false;
+    if (p.height == null || p.height < RANGE.height[0] || p.height > RANGE.height[1]) return false;
+    if (p.weight == null || p.weight < RANGE.weight[0] || p.weight > RANGE.weight[1]) return false;
+    return true;
+  }
+
+  function isOnboarded() {
+    if (!currentProfile || currentProfile.onboarded !== true) return false;
+    return requiredFieldsOk(currentProfile);
+  }
+
+  let onbHydrated = false;
+
   function applyGate() {
-    const locked = !hasApiKey();
+    const needKey = !hasApiKey();
+    const needProfile = !needKey && !isOnboarded();
+    const locked = needKey || needProfile;
     document.body.classList.toggle("locked", locked);
-    I("apiGate").classList.toggle("hidden", !locked);
-    if (locked) {
+    I("apiGate").classList.toggle("hidden", !needKey);
+    I("profileGate").classList.toggle("hidden", !needProfile);
+    if (needKey) {
       I("gateKeyInput").value = "";
       I("gateKeyInput").focus();
+    } else if (needProfile) {
+      if (!onbHydrated) {
+        prepareOnboardingForm();
+        onbHydrated = true;
+      }
+      refreshFormState("onb");
+      if (!I("profileGate").contains(document.activeElement)) {
+        I("onbName").focus();
+      }
     }
     updateKeyBadge();
   }
@@ -99,35 +170,250 @@
     toast("Key gelöscht. App gesperrt.");
   }
 
+  function parseLooseNumber(raw, asInt) {
+    const s = String(raw == null ? "" : raw).trim().replace(",", ".");
+    if (s === "") return null;
+    const n = asInt ? parseInt(s, 10) : parseFloat(s);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  function parseRequired(raw, min, max, asInt) {
+    const n = parseLooseNumber(raw, asInt);
+    if (n == null || n < min || n > max) return null;
+    return n;
+  }
+
+  function parseOptional(raw, min, max, asInt) {
+    const s = String(raw == null ? "" : raw).trim();
+    if (s === "") return { ok: true, value: null };
+    const n = parseLooseNumber(s, asInt);
+    if (n == null || n < min || n > max) return { ok: false, value: null };
+    return { ok: true, value: n };
+  }
+
+  function getSegValue(containerId, attr) {
+    const on = I(containerId).querySelector(".on[" + attr + "]");
+    return on ? on.getAttribute(attr) : "";
+  }
+
+  function setSegValue(containerId, attr, value) {
+    I(containerId).querySelectorAll("[" + attr + "]").forEach((btn) => {
+      const on = btn.getAttribute(attr) === String(value);
+      btn.classList.toggle("on", on);
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+    });
+  }
+
+  function setInputNum(id, val) {
+    I(id).value = val == null || val === "" ? "" : String(val);
+  }
+
+  function fillForm(prefix, p) {
+    const src = p || emptyProfile();
+    I(prefix + "Name").value = src.name || "";
+    setInputNum(prefix + "Age", src.age);
+    setInputNum(prefix + "Height", src.height);
+    setInputNum(prefix + "Weight", src.weight);
+    setSegValue(prefix + "GenderGroup", "data-gender", src.gender || "");
+    setInputNum(prefix + "BodyFat", src.bodyFatPct);
+    setInputNum(prefix + "SkelMuscle", src.skeletalMuscle);
+    setSegValue(prefix + "SkelUnit", "data-unit", src.skeletalMuscleUnit === "%" ? "%" : "kg");
+    setInputNum(prefix + "MuscleMass", src.muscleMassKg);
+    setInputNum(prefix + "BodyWater", src.bodyWaterPct);
+    setInputNum(prefix + "BoneMass", src.boneMassKg);
+    setInputNum(prefix + "Visceral", src.visceralFat);
+    setInputNum(prefix + "ScaleBmr", src.scaleBmr);
+    refreshFormState(prefix);
+  }
+
+  function prepareOnboardingForm() {
+    const demo = looksLikeDemoProfile(currentProfile);
+    const blank = !currentProfile || (!currentProfile.name && currentProfile.age == null && !currentProfile.gender && currentProfile.height == null && currentProfile.weight == null);
+    if (demo || blank) {
+      fillForm("onb", emptyProfile());
+      return;
+    }
+    fillForm("onb", currentProfile);
+  }
+
+  function readForm(prefix) {
+    const name = (I(prefix + "Name").value || "").trim().slice(0, 60);
+    const age = parseRequired(I(prefix + "Age").value, RANGE.age[0], RANGE.age[1], true);
+    const gender = getSegValue(prefix + "GenderGroup", "data-gender");
+    const height = parseRequired(I(prefix + "Height").value, RANGE.height[0], RANGE.height[1], false);
+    const weight = parseRequired(I(prefix + "Weight").value, RANGE.weight[0], RANGE.weight[1], false);
+    const unit = getSegValue(prefix + "SkelUnit", "data-unit") === "%" ? "%" : "kg";
+    const skelRange = unit === "%" ? RANGE.skeletalMusclePct : RANGE.skeletalMuscleKg;
+
+    const bodyFat = parseOptional(I(prefix + "BodyFat").value, RANGE.bodyFatPct[0], RANGE.bodyFatPct[1], false);
+    const skel = parseOptional(I(prefix + "SkelMuscle").value, skelRange[0], skelRange[1], false);
+    const muscle = parseOptional(I(prefix + "MuscleMass").value, RANGE.muscleMassKg[0], RANGE.muscleMassKg[1], false);
+    const water = parseOptional(I(prefix + "BodyWater").value, RANGE.bodyWaterPct[0], RANGE.bodyWaterPct[1], false);
+    const bone = parseOptional(I(prefix + "BoneMass").value, RANGE.boneMassKg[0], RANGE.boneMassKg[1], false);
+    const visceral = parseOptional(I(prefix + "Visceral").value, RANGE.visceralFat[0], RANGE.visceralFat[1], true);
+    const scaleBmr = parseOptional(I(prefix + "ScaleBmr").value, RANGE.scaleBmr[0], RANGE.scaleBmr[1], true);
+
+    const missing = [];
+    if (!name) missing.push("Name");
+    if (age == null) missing.push("Alter (14–90)");
+    if (gender !== "male" && gender !== "female" && gender !== "diverse") missing.push("Geschlecht");
+    if (height == null) missing.push("Größe (120–230 cm)");
+    if (weight == null) missing.push("Gewicht nüchtern (35–250 kg)");
+
+    const optionalBad = [];
+    if (!bodyFat.ok) optionalBad.push("Körperfett %");
+    if (!skel.ok) optionalBad.push("Skelettmuskulatur");
+    if (!muscle.ok) optionalBad.push("Muskelmasse");
+    if (!water.ok) optionalBad.push("Körperwasser %");
+    if (!bone.ok) optionalBad.push("Knochenmasse");
+    if (!visceral.ok) optionalBad.push("Viszeralfett");
+    if (!scaleBmr.ok) optionalBad.push("Grundumsatz der Waage");
+
+    const ok = missing.length === 0 && optionalBad.length === 0;
+    const profile = {
+      name: name,
+      age: age,
+      gender: gender,
+      height: height,
+      weight: weight,
+      onboarded: true,
+      bodyFatPct: bodyFat.value,
+      skeletalMuscle: skel.value,
+      skeletalMuscleUnit: unit,
+      muscleMassKg: muscle.value,
+      bodyWaterPct: water.value,
+      boneMassKg: bone.value,
+      visceralFat: visceral.value,
+      scaleBmr: scaleBmr.value
+    };
+
+    let error = "";
+    if (missing.length) {
+      error = "Bitte vollständig eintragen: " + missing.join(", ") + ".";
+    } else if (optionalBad.length) {
+      error = "Optionale Waagenwerte prüfen (oder leer lassen): " + optionalBad.join(", ") + ".";
+    }
+
+    return { ok: ok, error: error, profile: profile };
+  }
+
+  function calcBmi(height, weight) {
+    if (height == null || weight == null) return null;
+    if (height < RANGE.height[0] || height > RANGE.height[1]) return null;
+    if (weight < RANGE.weight[0] || weight > RANGE.weight[1]) return null;
+    return weight / ((height / 100) * (height / 100));
+  }
+
+  function updateLiveBmi(prefix) {
+    const height = parseRequired(I(prefix + "Height").value, RANGE.height[0], RANGE.height[1], false);
+    const weight = parseRequired(I(prefix + "Weight").value, RANGE.weight[0], RANGE.weight[1], false);
+    const bmi = calcBmi(height, weight);
+    const el = I(prefix + "BmiLive");
+    const html =
+      bmi == null
+        ? "BMI (berechnet): —<span>Aus Größe und Gewicht — kein Laborwert, keine DEXA</span>"
+        : "BMI (berechnet): " +
+          fmtDe(bmi, 1) +
+          "<span>Aus Größe und Gewicht — kein Laborwert, keine DEXA</span>";
+    if (el.innerHTML !== html) el.innerHTML = html;
+  }
+
+  function refreshFormState(prefix, showError) {
+    updateLiveBmi(prefix);
+    const parsed = readForm(prefix);
+    if (prefix === "onb") {
+      const btn = I("onbStartBtn");
+      const nextDisabled = !parsed.ok;
+      if (btn.disabled !== nextDisabled) btn.disabled = nextDisabled;
+      if (showError || parsed.ok) I("onbError").textContent = parsed.ok ? "" : parsed.error;
+    } else if (showError || parsed.ok) {
+      I("profError").textContent = parsed.ok ? "" : parsed.error;
+    }
+    return parsed;
+  }
+
+  function persistProfile(p) {
+    currentProfile = p;
+    localStorage.setItem(STORAGE_KEY_PROFILE, JSON.stringify(currentProfile));
+    syncHeader();
+    updateNutritionMetrics();
+    fillForm("prof", currentProfile);
+  }
+
+  function syncHeader() {
+    if (isOnboarded()) {
+      I("headerProfileLabel").textContent = "Profil: " + currentProfile.name;
+    } else {
+      I("headerProfileLabel").textContent = "Profil einrichten";
+    }
+  }
+
+  function normalizeLoadedProfile(raw) {
+    const p = emptyProfile();
+    if (!raw || typeof raw !== "object") return p;
+    if (typeof raw.name === "string") p.name = raw.name.trim().slice(0, 60);
+    if (raw.age != null) p.age = parseRequired(raw.age, RANGE.age[0], RANGE.age[1], true);
+    if (raw.gender === "male" || raw.gender === "female" || raw.gender === "diverse") p.gender = raw.gender;
+    if (raw.height != null) p.height = parseRequired(raw.height, RANGE.height[0], RANGE.height[1], false);
+    if (raw.weight != null) p.weight = parseRequired(raw.weight, RANGE.weight[0], RANGE.weight[1], false);
+    p.onboarded = raw.onboarded === true;
+    const bf = parseOptional(raw.bodyFatPct, RANGE.bodyFatPct[0], RANGE.bodyFatPct[1], false);
+    p.bodyFatPct = bf.ok ? bf.value : null;
+    p.skeletalMuscleUnit = raw.skeletalMuscleUnit === "%" ? "%" : "kg";
+    const skelRange = p.skeletalMuscleUnit === "%" ? RANGE.skeletalMusclePct : RANGE.skeletalMuscleKg;
+    const skel = parseOptional(raw.skeletalMuscle, skelRange[0], skelRange[1], false);
+    p.skeletalMuscle = skel.ok ? skel.value : null;
+    const muscle = parseOptional(raw.muscleMassKg, RANGE.muscleMassKg[0], RANGE.muscleMassKg[1], false);
+    p.muscleMassKg = muscle.ok ? muscle.value : null;
+    const water = parseOptional(raw.bodyWaterPct, RANGE.bodyWaterPct[0], RANGE.bodyWaterPct[1], false);
+    p.bodyWaterPct = water.ok ? water.value : null;
+    const bone = parseOptional(raw.boneMassKg, RANGE.boneMassKg[0], RANGE.boneMassKg[1], false);
+    p.boneMassKg = bone.ok ? bone.value : null;
+    const vis = parseOptional(raw.visceralFat, RANGE.visceralFat[0], RANGE.visceralFat[1], true);
+    p.visceralFat = vis.ok ? vis.value : null;
+    const bmr = parseOptional(raw.scaleBmr, RANGE.scaleBmr[0], RANGE.scaleBmr[1], true);
+    p.scaleBmr = bmr.ok ? bmr.value : null;
+    return p;
+  }
+
   function loadProfile() {
+    currentProfile = emptyProfile();
     const saved = localStorage.getItem(STORAGE_KEY_PROFILE);
     if (saved) {
       try {
-        const p = JSON.parse(saved);
-        if (p && typeof p === "object") currentProfile = Object.assign(currentProfile, p);
-      } catch (e) { /* ignore corrupt profile */ }
+        const parsed = JSON.parse(saved);
+        currentProfile = normalizeLoadedProfile(parsed);
+      } catch (e) {
+        currentProfile = emptyProfile();
+      }
     }
-    const g = currentProfile.gender;
-    if (g !== "male" && g !== "female" && g !== "diverse") currentProfile.gender = "male";
-    I("headerProfileLabel").textContent = "Profil: " + (currentProfile.name || "Benutzer");
-    I("profName").value = currentProfile.name || "";
-    I("profAge").value = currentProfile.age || 26;
-    I("profGender").value = currentProfile.gender || "male";
-    I("profHeight").value = currentProfile.height || 180;
-    I("profWeight").value = currentProfile.weight || 78;
+    if (looksLikeDemoProfile(currentProfile) && currentProfile.onboarded !== true) {
+      currentProfile = emptyProfile();
+    }
+    fillForm("prof", currentProfile);
+    onbHydrated = false;
+    syncHeader();
     updateNutritionMetrics();
   }
 
-  function saveProfile() {
-    const gender = I("profGender").value;
-    currentProfile.name = (I("profName").value || "Benutzer").trim().slice(0, 60);
-    currentProfile.age = Math.min(120, Math.max(12, parseInt(I("profAge").value, 10) || 26));
-    currentProfile.gender = gender === "female" || gender === "diverse" ? gender : "male";
-    currentProfile.height = Math.min(230, Math.max(120, parseFloat(I("profHeight").value) || 180));
-    currentProfile.weight = Math.min(250, Math.max(35, parseFloat(I("profWeight").value) || 75));
-    localStorage.setItem(STORAGE_KEY_PROFILE, JSON.stringify(currentProfile));
-    I("headerProfileLabel").textContent = "Profil: " + currentProfile.name;
-    updateNutritionMetrics();
+  function submitOnboarding() {
+    const parsed = refreshFormState("onb", true);
+    if (!parsed.ok) {
+      toast(parsed.error || "Bitte die Pflichtfelder vollständig eintragen.");
+      return;
+    }
+    persistProfile(parsed.profile);
+    applyGate();
+    toast("Profil gespeichert.");
+  }
+
+  function saveProfileFromModal() {
+    const parsed = refreshFormState("prof", true);
+    if (!parsed.ok) {
+      toast(parsed.error || "Bitte die Pflichtfelder vollständig eintragen.");
+      return;
+    }
+    persistProfile(parsed.profile);
     I("profileModal").classList.add("hidden");
     toast("Profil gespeichert.");
   }
@@ -227,9 +513,9 @@
   }
 
   function genderLabel(g) {
-    if (g === "female") return "weiblich";
-    if (g === "diverse") return "divers";
-    return "männlich";
+    if (g === "female") return "Frau";
+    if (g === "diverse") return "Divers";
+    return "Mann";
   }
 
   function mifflinBmr(w, h, a, gender) {
@@ -239,19 +525,150 @@
     return base + 5;
   }
 
-  function updateNutritionMetrics() {
-    const h = currentProfile.height || 180;
-    const w = currentProfile.weight || 75;
-    const a = currentProfile.age || 26;
-    const bmi = w / ((h / 100) * (h / 100));
-    const minIdeal = (18.5 * ((h / 100) * (h / 100))).toFixed(1);
-    const maxIdeal = (24.9 * ((h / 100) * (h / 100))).toFixed(1);
-    const bmr = mifflinBmr(w, h, a, currentProfile.gender);
+  function leanMassKg() {
+    const w = currentProfile.weight;
+    const bf = currentProfile.bodyFatPct;
+    if (w == null || bf == null) return null;
+    return w * (1 - bf / 100);
+  }
+
+  function getEnergyEstimates() {
+    const w = currentProfile.weight;
+    const h = currentProfile.height;
+    const a = currentProfile.age;
+    const mifflin = mifflinBmr(w, h, a, currentProfile.gender);
+    const lbm = leanMassKg();
+    let bmr = mifflin;
+    let bmrSource = "Mifflin-St Jeor";
+    let methodHint =
+      "Mifflin-St Jeor × 1,375 (überwiegend sitzend). Schätzung aus deinem Profil, kein Laborwert.";
+    if (lbm != null) {
+      bmr = 370 + 21.6 * lbm;
+      bmrSource = "Katch-McArdle (Magermasse aus Körperfett % der Waage)";
+      methodHint =
+        "Katch-McArdle aus Magermasse (Körperfett % der Waage) × 1,375. BIA-Schätzung, keine DEXA-Genauigkeit.";
+    }
+    if (currentProfile.scaleBmr != null) {
+      bmr = currentProfile.scaleBmr;
+      bmrSource = "Grundumsatz laut Waage";
+      methodHint =
+        "TDEE aus dem Grundumsatz der Waage × 1,375. BIA-Schätzung, keine DEXA-Genauigkeit.";
+    }
     const tdee = Math.round(bmr * 1.375);
-    I("nutrHeightWeight").textContent = h + " cm / " + w + " kg";
-    I("nutrBmi").textContent = bmi.toFixed(1) + " kg/m²";
+    let proteinMin;
+    let proteinMax;
+    let proteinNote;
+    if (lbm != null) {
+      proteinMin = Math.round(lbm * 1.6);
+      proteinMax = Math.round(lbm * 2.2);
+      proteinNote = "g/kg Magermasse (aus Körperfett %)";
+    } else {
+      proteinMin = Math.round(w * 1.6);
+      proteinMax = Math.round(w * 2.2);
+      proteinNote = "g/kg Körpergewicht";
+    }
+    return {
+      bmr: bmr,
+      bmrSource: bmrSource,
+      tdee: tdee,
+      proteinMin: proteinMin,
+      proteinMax: proteinMax,
+      proteinNote: proteinNote,
+      lbm: lbm,
+      mifflin: mifflin,
+      methodHint: methodHint
+    };
+  }
+
+  function scaleLinesForPrompt() {
+    const p = currentProfile;
+    const extras = [];
+    if (p.bodyFatPct != null) extras.push("Körperfett ca. " + fmtDe(p.bodyFatPct, 1) + " %");
+    const lbm = leanMassKg();
+    if (lbm != null) extras.push("Magermasse grob " + fmtDe(lbm, 1) + " kg (Gewicht × (1 − Körperfett %))");
+    if (p.skeletalMuscle != null) {
+      extras.push(
+        "Skelettmuskulatur " +
+          fmtDe(p.skeletalMuscle, 1) +
+          (p.skeletalMuscleUnit === "%" ? " %" : " kg")
+      );
+    }
+    if (p.muscleMassKg != null) extras.push("Muskelmasse " + fmtDe(p.muscleMassKg, 1) + " kg");
+    if (p.bodyWaterPct != null) extras.push("Körperwasser " + fmtDe(p.bodyWaterPct, 1) + " %");
+    if (p.boneMassKg != null) extras.push("Knochenmasse " + fmtDe(p.boneMassKg, 1) + " kg");
+    if (p.visceralFat != null) extras.push("Viszeralfett-Stufe " + p.visceralFat);
+    if (p.scaleBmr != null) extras.push("Grundumsatz laut Waage " + p.scaleBmr + " kcal");
+    if (!extras.length) return "";
+    return (
+      "Angaben der Waage (optional, Bioimpedanz-Schätzung, ausdrücklich keine DEXA-Genauigkeit): " +
+      extras.join("; ") +
+      ".\n"
+    );
+  }
+
+  function buildProfileContext() {
+    const p = currentProfile;
+    const bmi = calcBmi(p.height, p.weight);
+    const e = getEnergyEstimates();
+    let s =
+      "Nutzer: " +
+      p.name +
+      ". Alter " +
+      p.age +
+      ", Geschlecht " +
+      genderLabel(p.gender) +
+      ", Größe " +
+      p.height +
+      " cm, Gewicht (nüchtern) " +
+      p.weight +
+      " kg.\n";
+    if (bmi != null) {
+      s += "BMI nur aus Größe und Gewicht berechnet: " + fmtDe(bmi, 1) + " (kein Labor, keine DEXA).\n";
+    }
+    s += scaleLinesForPrompt();
+    s +=
+      "Lokale Energie-Schätzung (" +
+      e.bmrSource +
+      "): BMR ca. " +
+      Math.round(e.bmr) +
+      " kcal, TDEE (× 1,375, überwiegend sitzend) ca. " +
+      e.tdee +
+      " kcal. Protein-Richtwert ca. " +
+      e.proteinMin +
+      "–" +
+      e.proteinMax +
+      " g (" +
+      e.proteinNote +
+      "). Keine klinische Körpermessung behaupten.\n";
+    return s;
+  }
+
+  function updateNutritionMetrics() {
+    if (!isOnboarded()) {
+      I("nutrHeightWeight").textContent = "–";
+      I("nutrBmi").textContent = "–";
+      I("nutrIdealWeight").textContent = "–";
+      I("nutrTdee").textContent = "–";
+      I("nutrLeanMass").textContent = "–";
+      I("nutrProtein").textContent = "–";
+      I("nutrMethodHint").textContent =
+        "Schätzung aus deinem Profil. Kein Laborwert, keine DEXA-Genauigkeit.";
+      return;
+    }
+    const h = currentProfile.height;
+    const w = currentProfile.weight;
+    const bmi = calcBmi(h, w);
+    const minIdeal = (18.5 * ((h / 100) * (h / 100))).toFixed(1).replace(".", ",");
+    const maxIdeal = (24.9 * ((h / 100) * (h / 100))).toFixed(1).replace(".", ",");
+    const e = getEnergyEstimates();
+    I("nutrHeightWeight").textContent = fmtDe(h, h % 1 ? 1 : 0) + " cm / " + fmtDe(w, 1) + " kg";
+    I("nutrBmi").textContent = bmi != null ? fmtDe(bmi, 1) + " kg/m²" : "–";
     I("nutrIdealWeight").textContent = minIdeal + " – " + maxIdeal + " kg";
-    I("nutrTdee").textContent = "~" + tdee + " kcal";
+    I("nutrTdee").textContent = "~" + e.tdee + " kcal";
+    I("nutrLeanMass").textContent =
+      e.lbm != null ? fmtDe(e.lbm, 1) + " kg" : "– (kein Körperfett %)";
+    I("nutrProtein").textContent = e.proteinMin + "–" + e.proteinMax + " g";
+    I("nutrMethodHint").textContent = e.methodHint;
   }
 
   async function geminiGenerate(parts, loadingEl, loadingMsg) {
@@ -262,14 +679,17 @@
     }
     loadingEl.innerHTML = '<span class="pulse" style="color:var(--brand)">' + escapeHtml(loadingMsg) + "</span>";
     try {
-      const response = await fetch(GEMINI_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": apiKey
-        },
-        body: JSON.stringify({ contents: [{ parts: parts }] })
-      });
+      const response = await fetch(
+        "https://generativelanguage.googleapis.com/v1beta/models/" + MODEL + ":generateContent",
+        {
+          method: "POST",
+          headers: {
+            "x-goog-api-key": apiKey,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ contents: [{ parts: parts }] })
+        }
+      );
       const data = await response.json();
       const text =
         data &&
@@ -301,7 +721,7 @@
 
     const promptText =
       "Du bist ein Coach für Haltung und Alltagsergonomie, kein Arzt. Keine Diagnose, keine Krankheitsnamen als Feststellung. Formuliere als mögliche Hinweise und Übungsvorschläge.\n" +
-      "Nutzerdaten: Alter " + currentProfile.age + ", Größe " + currentProfile.height + " cm, Gewicht " + currentProfile.weight + " kg, Geschlecht " + genderLabel(currentProfile.gender) + ".\n" +
+      buildProfileContext() +
       "Angegebene Muster: " + (symptoms.length ? symptoms.join(", ") : "keine Checkbox gewählt") + ".\n" +
       (uploadedBase64Photo
         ? "Ein Seitenfoto liegt bei. Beschreibe nur, was plausibel sichtbar sein könnte (Kopfposition, Schultern, Lendenbereich). Unsicherheiten benennen.\n"
@@ -330,10 +750,7 @@
     const textBox = I("mealPlanAiText");
     resultBox.classList.remove("hidden");
 
-    const h = currentProfile.height || 180;
-    const w = currentProfile.weight || 75;
-    const a = currentProfile.age || 26;
-    const tdee = Math.round(mifflinBmr(w, h, a, currentProfile.gender) * 1.375);
+    const e = getEnergyEstimates();
     const goalNote =
       goal === "deficit"
         ? "ca. 400 kcal unter TDEE, Boden nicht unter 1900 kcal"
@@ -342,13 +759,19 @@
           : "ungefähr TDEE halten";
 
     const promptText =
-      "Du bist ein Ernährungscoach. Keine medizinischen Heilversprechen. Schätzwerte, kein Labor.\n" +
-      "Alter " + a + ", Größe " + h + " cm, Gewicht " + w + " kg, Geschlecht " + genderLabel(currentProfile.gender) + ".\n" +
-      "TDEE-Schätzung (Mifflin-St Jeor × 1,375): ca. " + tdee + " kcal. Ziel: " + goalNote + ".\n" +
+      "Du bist ein Ernährungscoach. Keine medizinischen Heilversprechen. Schätzwerte, kein Labor, keine DEXA-Genauigkeit.\n" +
+      buildProfileContext() +
+      "Ziel: " + goalNote + ".\n" +
       "Allergien/Unverträglichkeiten: " + allergies + ".\n" +
       "Abneigungen: " + dislikes + ".\n" +
       "Deutsch, konkret:\n" +
-      "1. Kalorien und Makros in Gramm (Protein, Kohlenhydrate, Fett) als grobe Zielspanne.\n" +
+      "1. Kalorien und Makros in Gramm (Protein ca. " +
+      e.proteinMin +
+      "–" +
+      e.proteinMax +
+      " g, Kohlenhydrate, Fett) als grobe Zielspanne. Protein an " +
+      e.proteinNote +
+      " anlehnen.\n" +
       "2. Ein Tagesplan: Frühstück, Mittag, Abend, ein Snack. Allergene und Abneigungen weglassen.\n" +
       "Kein Alkohol. Kein Schweinefleisch. Schließe mit: Schätzung, kein Ersatz für ärztliche Beratung.";
 
@@ -454,6 +877,23 @@
     });
   }
 
+  function bindSegGroup(containerId, attr, prefix) {
+    I(containerId).addEventListener("click", (e) => {
+      const btn = e.target.closest("[" + attr + "]");
+      if (!btn || !I(containerId).contains(btn)) return;
+      setSegValue(containerId, attr, btn.getAttribute(attr));
+      refreshFormState(prefix);
+    });
+  }
+
+  function bindFormLive(prefix) {
+    const form = I(prefix + "Form");
+    form.addEventListener("input", () => refreshFormState(prefix));
+    form.addEventListener("change", () => refreshFormState(prefix));
+    bindSegGroup(prefix + "GenderGroup", "data-gender", prefix);
+    bindSegGroup(prefix + "SkelUnit", "data-unit", prefix);
+  }
+
   function bind() {
     I("gateSaveBtn").addEventListener("click", () => saveKeyFromInput("gateKeyInput"));
     I("gateKeyInput").addEventListener("keydown", (e) => {
@@ -475,9 +915,23 @@
     });
     I("deleteApiKeyBtn").addEventListener("click", deleteApiKey);
 
-    I("openProfileBtn").addEventListener("click", () => I("profileModal").classList.remove("hidden"));
+    bindFormLive("onb");
+    bindFormLive("prof");
+    I("onbForm").addEventListener("submit", (e) => {
+      e.preventDefault();
+      submitOnboarding();
+    });
+    I("profForm").addEventListener("submit", (e) => {
+      e.preventDefault();
+      saveProfileFromModal();
+    });
+
+    I("openProfileBtn").addEventListener("click", () => {
+      fillForm("prof", currentProfile);
+      I("profileModal").classList.remove("hidden");
+      I("profName").focus();
+    });
     I("closeProfileModal").addEventListener("click", () => I("profileModal").classList.add("hidden"));
-    I("saveProfileBtn").addEventListener("click", saveProfile);
 
     document.querySelectorAll(".nav-btn").forEach((btn) => {
       btn.addEventListener("click", () => switchTab(btn.getAttribute("data-tab")));
@@ -494,6 +948,8 @@
   }
 
   document.addEventListener("DOMContentLoaded", () => {
+    if (I("gateModelLabel")) I("gateModelLabel").textContent = MODEL;
+    if (I("settingsModelLabel")) I("settingsModelLabel").textContent = MODEL;
     bind();
     loadProfile();
     renderExercises();

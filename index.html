@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover">
   <meta name="referrer" content="no-referrer">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' https://generativelanguage.googleapis.com; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; frame-src 'none'; worker-src 'self'; manifest-src 'self'; upgrade-insecure-requests">
   <meta name="theme-color" content="#090d16">
@@ -11,27 +11,108 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Health Coach">
-  <link rel="manifest" href="manifest.json">
-  <link rel="icon" href="icon.svg" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="icon-180.png">
-  <link rel="apple-touch-icon" sizes="180x180" href="icon-180.png">
-  <link rel="apple-touch-icon" sizes="192x192" href="icon-192.png">
-  <link rel="stylesheet" href="styles.css">
+  <link rel="manifest" href="./manifest.json">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="./icon-180.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="./icon-180.png">
+  <link rel="apple-touch-icon" sizes="192x192" href="./icon-192.png">
+  <link rel="stylesheet" href="./styles.css">
   <title>Health Coach AI</title>
 </head>
 <body class="locked">
   <div id="apiGate" class="gate" role="dialog" aria-modal="true" aria-labelledby="gateTitle">
-    <div class="box">
-      <div class="brand-mark" style="margin-bottom:14px">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+    <div class="gate-scroll">
+      <div class="gate-inner">
+        <div class="brand-mark" style="margin-bottom:14px">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        </div>
+        <h1 class="h1" id="gateTitle" style="font-size:22px">API-Key eintragen</h1>
+        <p class="hint" style="margin:10px 0 18px">Google Gemini. Ohne Key startet die App nicht. Der Key bleibt nur in localStorage auf diesem Gerät — nicht im Code, nicht in der URL, nicht auf dem Server.</p>
+        <label class="field" for="gateKeyInput">Gemini API-Key</label>
+        <input type="password" id="gateKeyInput" autocomplete="off" spellcheck="false" placeholder="AIza…">
+        <p class="hint" style="margin:10px 0 8px">Key unter aistudio.google.com erstellen. Modell: <strong id="gateModelLabel">gemini-3.6-flash</strong>. Wird nach dem Speichern nicht mehr im Feld angezeigt.</p>
       </div>
-      <h1 class="h1" id="gateTitle" style="font-size:22px">API-Key eintragen</h1>
-      <p class="hint" style="margin:10px 0 18px">Google Gemini. Ohne Key startet die App nicht. Der Key bleibt nur in localStorage auf diesem Gerät — nicht im Code, nicht in der URL, nicht auf dem Server.</p>
-      <label class="field" for="gateKeyInput">Gemini API-Key</label>
-      <input type="password" id="gateKeyInput" autocomplete="off" spellcheck="false" placeholder="AIza…">
-      <p class="hint" style="margin:10px 0 16px">Key unter aistudio.google.com erstellen. Wird nach dem Speichern nicht mehr im Feld angezeigt.</p>
-      <button type="button" class="btn" id="gateSaveBtn">Key speichern und App öffnen</button>
     </div>
+    <div class="gate-footer">
+      <button type="button" class="btn" id="gateSaveBtn">Key speichern und weiter</button>
+    </div>
+  </div>
+
+  <div id="profileGate" class="gate hidden" role="dialog" aria-modal="true" aria-labelledby="onbTitle">
+    <form id="onbForm" class="gate-form">
+      <div class="gate-scroll">
+        <div class="gate-inner">
+          <div class="brand-mark" style="margin-bottom:14px">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          </div>
+          <h1 class="h1" id="onbTitle" style="font-size:22px">Profil einrichten</h1>
+          <p class="hint" style="margin:10px 0 18px">Einmalig vor der App. Ohne diese Angaben startet nichts. Alles bleibt nur in localStorage auf diesem Gerät — kein voreingestelltes Demo-Profil.</p>
+          <label class="field" for="onbName">Name</label>
+          <input type="text" id="onbName" maxlength="60" autocomplete="name" placeholder="z. B. Alex">
+          <label class="field" for="onbAge" style="margin-top:10px">Alter (Jahre)</label>
+          <input type="number" id="onbAge" min="14" max="90" inputmode="numeric" placeholder="z. B. 28">
+          <span class="field" id="onbGenderLabel" style="margin-top:10px">Geschlecht</span>
+          <div class="seg" id="onbGenderGroup" role="radiogroup" aria-labelledby="onbGenderLabel">
+            <button type="button" class="seg-btn" data-gender="male" aria-pressed="false">Mann</button>
+            <button type="button" class="seg-btn" data-gender="female" aria-pressed="false">Frau</button>
+            <button type="button" class="seg-btn" data-gender="diverse" aria-pressed="false">Divers</button>
+          </div>
+          <div class="grid2" style="margin-top:10px">
+            <div>
+              <label class="field" for="onbHeight">Größe (cm)</label>
+              <input type="number" id="onbHeight" min="120" max="230" inputmode="decimal" placeholder="z. B. 178">
+            </div>
+            <div>
+              <label class="field" for="onbWeight">Gewicht (kg, nüchtern)</label>
+              <input type="number" id="onbWeight" min="35" max="250" step="0.1" inputmode="decimal" placeholder="z. B. 82">
+            </div>
+          </div>
+          <div class="bmi-live" id="onbBmiLive" aria-live="polite">BMI (berechnet): —<span>Aus Größe und Gewicht — kein Laborwert, keine DEXA</span></div>
+          <div class="opt-block">
+            <h3>Von der Waage (optional) — macht die Auswertung genauer</h3>
+            <p class="hint">Bioimpedanz (InBody-ähnlich) schätzt. Das ist keine DEXA-Genauigkeit. Felder dürfen leer bleiben.</p>
+            <div class="grid2" style="margin-top:10px">
+              <div>
+                <label class="field" for="onbBodyFat">Körperfett (%)</label>
+                <input type="number" id="onbBodyFat" min="3" max="60" step="0.1" inputmode="decimal" placeholder="z. B. 18,5">
+              </div>
+              <div>
+                <label class="field" for="onbSkelMuscle">Skelettmuskulatur</label>
+                <input type="number" id="onbSkelMuscle" min="0" max="90" step="0.1" inputmode="decimal" placeholder="z. B. 33,2">
+                <div class="seg unit-seg" id="onbSkelUnit" role="group" aria-label="Einheit Skelettmuskulatur">
+                  <button type="button" class="seg-btn on" data-unit="kg" aria-pressed="true">kg</button>
+                  <button type="button" class="seg-btn" data-unit="%" aria-pressed="false">%</button>
+                </div>
+              </div>
+              <div>
+                <label class="field" for="onbMuscleMass">Muskelmasse (kg), falls extra</label>
+                <input type="number" id="onbMuscleMass" min="5" max="90" step="0.1" inputmode="decimal" placeholder="z. B. 36">
+              </div>
+              <div>
+                <label class="field" for="onbBodyWater">Körperwasser (%)</label>
+                <input type="number" id="onbBodyWater" min="30" max="80" step="0.1" inputmode="decimal" placeholder="z. B. 55">
+              </div>
+              <div>
+                <label class="field" for="onbBoneMass">Knochenmasse (kg)</label>
+                <input type="number" id="onbBoneMass" min="1" max="6" step="0.1" inputmode="decimal" placeholder="z. B. 3,2">
+              </div>
+              <div>
+                <label class="field" for="onbVisceral">Viszeralfett-Stufe</label>
+                <input type="number" id="onbVisceral" min="1" max="30" step="1" inputmode="numeric" placeholder="z. B. 8">
+              </div>
+              <div>
+                <label class="field" for="onbScaleBmr">Grundumsatz der Waage (kcal)</label>
+                <input type="number" id="onbScaleBmr" min="800" max="4000" step="1" inputmode="numeric" placeholder="z. B. 1720">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="gate-footer">
+        <p class="hint" id="onbError"></p>
+        <button type="submit" class="btn" id="onbStartBtn" disabled>Weiter / App starten</button>
+      </div>
+    </form>
   </div>
 
   <div class="app-shell">
@@ -43,7 +124,7 @@
           </div>
           <div>
             <h1 class="h1">Health Coach <span>AI</span></h1>
-            <p class="sub" id="headerProfileLabel">Profil: Standard</p>
+            <p class="sub" id="headerProfileLabel">Profil</p>
           </div>
         </div>
         <div class="head-actions">
@@ -110,12 +191,14 @@
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3zm0 0v7"/></svg>
             KI-Ernährungsplaner
           </h2>
-          <p class="hint">Mifflin-St Jeor × 1,375 (überwiegend sitzend). Schätzung, kein Laborwert.</p>
+          <p class="hint" id="nutrMethodHint">Schätzung aus deinem Profil. Kein Laborwert, keine DEXA-Genauigkeit.</p>
           <div class="grid4" style="margin-top:12px">
             <div class="metric"><div class="k">Größe &amp; Gewicht</div><div class="v" id="nutrHeightWeight">–</div></div>
             <div class="metric"><div class="k">BMI</div><div class="v" id="nutrBmi">–</div></div>
             <div class="metric"><div class="k">WHO-Korridor (BMI 18,5–24,9)</div><div class="v" id="nutrIdealWeight">–</div></div>
             <div class="metric"><div class="k">TDEE-Schätzung</div><div class="v" id="nutrTdee">–</div></div>
+            <div class="metric"><div class="k">Magermasse</div><div class="v" id="nutrLeanMass">–</div></div>
+            <div class="metric"><div class="k">Protein-Richtwert</div><div class="v" id="nutrProtein">–</div></div>
           </div>
           <div class="grid2 md2" style="margin-top:14px">
             <div>
@@ -195,6 +278,7 @@
     <div class="box">
       <h3 id="keyModalTitle" style="margin:0 0 8px;font-size:16px">Google Gemini API-Key</h3>
       <p class="hint">Nur localStorage dieses Geräts. Feld bleibt leer — Key wird nicht angezeigt und nicht exportiert.</p>
+      <p class="hint" style="margin-top:8px">Modell: <strong id="settingsModelLabel">gemini-3.6-flash</strong> (in der App festgelegt, nicht an den Key gebunden).</p>
       <label class="field" for="apiKeyInputField" style="margin-top:12px">Neuen Key eintragen</label>
       <input type="password" id="apiKeyInputField" autocomplete="off" spellcheck="false" placeholder="AIza…">
       <div class="row" style="justify-content:space-between;margin-top:14px">
@@ -210,39 +294,77 @@
   <div id="profileModal" class="modal hidden" role="dialog" aria-labelledby="profTitle">
     <div class="box">
       <h3 id="profTitle" style="margin:0 0 12px;font-size:16px">Profil (lokal, ohne PIN)</h3>
-      <label class="field" for="profName">Name</label>
-      <input type="text" id="profName" maxlength="60" autocomplete="name">
-      <div class="grid2" style="margin-top:10px">
-        <div>
-          <label class="field" for="profAge">Alter (Jahre)</label>
-          <input type="number" id="profAge" min="12" max="120" inputmode="numeric">
+      <form id="profForm">
+        <label class="field" for="profName">Name</label>
+        <input type="text" id="profName" maxlength="60" autocomplete="name" placeholder="z. B. Alex">
+        <label class="field" for="profAge" style="margin-top:10px">Alter (Jahre)</label>
+        <input type="number" id="profAge" min="14" max="90" inputmode="numeric" placeholder="z. B. 28">
+        <span class="field" id="profGenderLabel" style="margin-top:10px">Geschlecht</span>
+        <div class="seg" id="profGenderGroup" role="radiogroup" aria-labelledby="profGenderLabel">
+          <button type="button" class="seg-btn" data-gender="male" aria-pressed="false">Mann</button>
+          <button type="button" class="seg-btn" data-gender="female" aria-pressed="false">Frau</button>
+          <button type="button" class="seg-btn" data-gender="diverse" aria-pressed="false">Divers</button>
         </div>
-        <div>
-          <label class="field" for="profGender">Geschlecht</label>
-          <select id="profGender">
-            <option value="male">Männlich</option>
-            <option value="female">Weiblich</option>
-            <option value="diverse">Divers</option>
-          </select>
+        <div class="grid2" style="margin-top:10px">
+          <div>
+            <label class="field" for="profHeight">Größe (cm)</label>
+            <input type="number" id="profHeight" min="120" max="230" inputmode="decimal" placeholder="z. B. 178">
+          </div>
+          <div>
+            <label class="field" for="profWeight">Gewicht (kg, nüchtern)</label>
+            <input type="number" id="profWeight" min="35" max="250" step="0.1" inputmode="decimal" placeholder="z. B. 82">
+          </div>
         </div>
-        <div>
-          <label class="field" for="profHeight">Größe (cm)</label>
-          <input type="number" id="profHeight" min="120" max="230" inputmode="decimal">
+        <div class="bmi-live" id="profBmiLive" aria-live="polite">BMI (berechnet): —<span>Aus Größe und Gewicht — kein Laborwert, keine DEXA</span></div>
+        <div class="opt-block">
+          <h3>Von der Waage (optional) — macht die Auswertung genauer</h3>
+          <p class="hint">Bioimpedanz (InBody-ähnlich) schätzt. Das ist keine DEXA-Genauigkeit. Felder dürfen leer bleiben.</p>
+          <div class="grid2" style="margin-top:10px">
+            <div>
+              <label class="field" for="profBodyFat">Körperfett (%)</label>
+              <input type="number" id="profBodyFat" min="3" max="60" step="0.1" inputmode="decimal" placeholder="z. B. 18,5">
+            </div>
+            <div>
+              <label class="field" for="profSkelMuscle">Skelettmuskulatur</label>
+              <input type="number" id="profSkelMuscle" min="0" max="90" step="0.1" inputmode="decimal" placeholder="z. B. 33,2">
+              <div class="seg unit-seg" id="profSkelUnit" role="group" aria-label="Einheit Skelettmuskulatur">
+                <button type="button" class="seg-btn on" data-unit="kg" aria-pressed="true">kg</button>
+                <button type="button" class="seg-btn" data-unit="%" aria-pressed="false">%</button>
+              </div>
+            </div>
+            <div>
+              <label class="field" for="profMuscleMass">Muskelmasse (kg), falls extra</label>
+              <input type="number" id="profMuscleMass" min="5" max="90" step="0.1" inputmode="decimal" placeholder="z. B. 36">
+            </div>
+            <div>
+              <label class="field" for="profBodyWater">Körperwasser (%)</label>
+              <input type="number" id="profBodyWater" min="30" max="80" step="0.1" inputmode="decimal" placeholder="z. B. 55">
+            </div>
+            <div>
+              <label class="field" for="profBoneMass">Knochenmasse (kg)</label>
+              <input type="number" id="profBoneMass" min="1" max="6" step="0.1" inputmode="decimal" placeholder="z. B. 3,2">
+            </div>
+            <div>
+              <label class="field" for="profVisceral">Viszeralfett-Stufe</label>
+              <input type="number" id="profVisceral" min="1" max="30" step="1" inputmode="numeric" placeholder="z. B. 8">
+            </div>
+            <div>
+              <label class="field" for="profScaleBmr">Grundumsatz der Waage (kcal)</label>
+              <input type="number" id="profScaleBmr" min="800" max="4000" step="1" inputmode="numeric" placeholder="z. B. 1720">
+            </div>
+          </div>
         </div>
-        <div>
-          <label class="field" for="profWeight">Gewicht (kg)</label>
-          <input type="number" id="profWeight" min="35" max="250" step="0.1" inputmode="decimal">
+        <p class="hint" id="profError" style="margin:14px 0 10px;color:var(--red)"></p>
+        <div class="row" style="justify-content:flex-end;margin-top:8px">
+          <button type="button" class="btn ghost sm" id="closeProfileModal">Schließen</button>
+          <button type="submit" class="btn sm" id="saveProfileBtn">Profil sichern</button>
         </div>
-      </div>
-      <div class="row" style="justify-content:flex-end;margin-top:16px">
-        <button type="button" class="btn ghost sm" id="closeProfileModal">Schließen</button>
-        <button type="button" class="btn sm" id="saveProfileBtn">Profil sichern</button>
-      </div>
+      </form>
     </div>
   </div>
 
   <div class="toast" id="toast" role="status"></div>
-  <script src="data.js"></script>
-  <script src="app.js"></script>
+  <script src="./data.js"></script>
+  <script src="./app.js"></script>
 </body>
 </html>

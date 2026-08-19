@@ -1,4 +1,4 @@
-const CACHE = "avshot-health-v10";
+const CACHE = "avshot-health-v12";
 const FILES = [
   "./",
   "./index.html",
@@ -39,6 +39,10 @@ self.addEventListener("fetch", e => {
   if (req.method !== "GET") return;
   let url;
   try { url = new URL(req.url); } catch(err){ return; }
+  if (url.origin === self.location.origin && /\/avshot-health$/.test(url.pathname)) {
+    e.respondWith(Response.redirect(url.origin + "/avshot-health/", 301));
+    return;
+  }
   if (!isAppAsset(url)) return;
 
   const isPage =

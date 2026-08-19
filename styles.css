@@ -6,16 +6,19 @@
 }
 *{box-sizing:border-box; -webkit-tap-highlight-color:transparent}
 html,body{margin:0; background:var(--bg); color:var(--text);
-  font-family:"Segoe UI",system-ui,sans-serif; min-height:100dvh}
+  font-family:"Segoe UI",system-ui,sans-serif;
+  width:100%; max-width:100%; min-height:100dvh; overflow-x:hidden;
+  -webkit-text-size-adjust:100%; text-size-adjust:100%}
 body{padding-bottom:calc(var(--tab-h) + env(safe-area-inset-bottom))}
-button,input,select{font-family:inherit; font-size:16px}
-button{cursor:pointer}
+body.locked{padding-bottom:0; overflow:hidden}
+button,input,select{font-family:inherit; font-size:16px; max-width:100%}
+button{cursor:pointer; touch-action:manipulation}
 .hidden{display:none !important}
 
 .header{position:sticky; top:0; z-index:40; background:rgba(9,13,22,.92);
   border-bottom:1px solid var(--line); backdrop-filter:blur(10px);
   padding:10px 16px; padding-top:calc(10px + env(safe-area-inset-top))}
-.header .inner{max-width:640px; margin:0 auto; display:flex; align-items:center; justify-content:space-between; gap:10px}
+.header .inner{max-width:640px; margin:0 auto; display:flex; align-items:center; justify-content:space-between; gap:10px; min-width:0}
 .brand-mark{width:40px; height:40px; border-radius:12px; background:var(--brand-dim);
   border:1px solid rgba(16,185,129,.35); display:flex; align-items:center; justify-content:center; color:var(--brand)}
 .brand-mark svg{width:22px; height:22px}
@@ -61,11 +64,23 @@ button{cursor:pointer}
 .btn.ghost{background:var(--surface2); color:var(--text); border:1px solid var(--line); font-weight:600}
 .btn.sm{width:auto; padding:8px 12px; font-size:13px}
 .btn.danger{background:transparent; color:var(--red); border:none; font-weight:600; width:auto}
-.btn:disabled{opacity:.45}
+.btn:disabled{opacity:.45; cursor:not-allowed}
 
-label.field{display:block; font-size:12px; color:var(--muted); margin-bottom:6px}
+.seg{display:flex; gap:8px; width:100%; max-width:100%}
+.seg-btn{flex:1; min-height:44px; border-radius:10px; background:var(--surface2); color:var(--text);
+  border:1px solid var(--line); font-weight:700; font-size:14px; padding:8px 6px; touch-action:manipulation}
+.seg-btn.on{background:var(--brand-dim); border-color:var(--brand); color:var(--brand2)}
+.unit-seg{margin-top:8px}
+.unit-seg .seg-btn{flex:1}
+.bmi-live{margin-top:12px; padding:12px; border-radius:12px; background:rgba(16,185,129,.1);
+  border:1px solid rgba(16,185,129,.25); font-size:15px; font-weight:800}
+.bmi-live span{display:block; margin-top:4px; font-size:12px; font-weight:600; color:var(--muted)}
+.opt-block{margin-top:16px; padding:14px; border-radius:14px; border:1px dashed var(--line); background:rgba(0,0,0,.2)}
+.opt-block h3{margin:0 0 6px; font-size:14px; font-weight:700; line-height:1.35}
+
+.field{display:block; font-size:12px; color:var(--muted); margin-bottom:6px}
 input[type=text],input[type=number],input[type=password],input[type=time],select,textarea{
-  width:100%; background:var(--bg); border:1px solid var(--line); border-radius:10px;
+  width:100%; max-width:100%; min-width:0; background:var(--bg); border:1px solid var(--line); border-radius:10px;
   padding:12px; color:var(--text); outline:none; appearance:auto; -webkit-appearance:menulist}
 input:focus,select:focus,textarea:focus{border-color:var(--brand)}
 select{min-height:44px}
@@ -78,13 +93,24 @@ select{min-height:44px}
 .tabs button.on{color:var(--brand)}
 .tabs svg{width:20px; height:20px}
 
-.gate{position:fixed; inset:0; z-index:80; background:var(--bg); display:flex; flex-direction:column;
-  justify-content:center; padding:28px 20px calc(28px + env(safe-area-inset-bottom))}
-.gate .box{max-width:420px; margin:0 auto; width:100%}
-.modal{position:fixed; inset:0; z-index:70; background:rgba(0,0,0,.72); display:flex;
-  align-items:center; justify-content:center; padding:16px}
+.gate{position:fixed; inset:0; z-index:100; width:100%; max-width:100%;
+  background:var(--bg); display:flex; flex-direction:column;
+  overflow:hidden; min-height:100dvh; min-height:100svh}
+.gate-form{display:flex; flex-direction:column; flex:1; min-height:0; width:100%; max-width:100%}
+.gate-scroll{flex:1 1 auto; min-height:0; overflow-y:auto; overflow-x:hidden;
+  -webkit-overflow-scrolling:touch; width:100%}
+.gate-inner{width:100%; max-width:480px; margin:0 auto;
+  padding:max(16px, env(safe-area-inset-top)) 16px 16px}
+.gate-footer{flex:0 0 auto; width:100%; max-width:480px; margin:0 auto;
+  padding:12px 16px calc(12px + env(safe-area-inset-bottom));
+  background:var(--bg); border-top:1px solid var(--line); position:sticky; bottom:0}
+#onbError{color:var(--red); margin:0 0 8px; min-height:1.2em}
+.modal{position:fixed; inset:0; z-index:110; background:rgba(0,0,0,.72); display:flex;
+  align-items:flex-start; justify-content:center;
+  padding:max(12px, env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom));
+  overflow-y:auto; -webkit-overflow-scrolling:touch}
 .modal .box{background:var(--surface); border:1px solid var(--line); border-radius:16px;
-  padding:18px; width:100%; max-width:420px; max-height:90dvh; overflow:auto}
+  padding:18px; width:100%; max-width:480px; max-height:none; margin:auto 0}
 
 .excard{background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:14px; margin-bottom:12px}
 .excard .dur{font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--brand); font-weight:800}
@@ -106,5 +132,6 @@ select{min-height:44px}
 .photo-wrap{position:relative}
 .photo-wrap .x{position:absolute; top:8px; right:8px; width:32px; height:32px; border-radius:16px;
   background:#dc2626; color:#fff; border:none; font-weight:800}
-body.locked .app-shell, body.locked .tabs{visibility:hidden}
+body.locked .app-shell, body.locked .tabs{display:none !important}
+body.locked .toast{bottom:24px; z-index:120}
 @media (prefers-reduced-motion: reduce){ .exfig svg animate{display:none} .pulse{animation:none} }
